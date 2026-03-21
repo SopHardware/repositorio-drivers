@@ -1,0 +1,54 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String          @id @default(cuid())
+  username     String          @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  drivers      HardwareDriver[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN_SISTEMAS
+  SOPORTE_WP
+  CONSULTA
+}
+
+model HardwareDriver {
+  id            Int      @id @default(autoincrement())
+  driverName    String
+  brand         String
+  model         String
+  version       String
+  hardwareType  HardwareType
+  driveFileId   String
+  fileExtension String
+  fileSize      Int
+  uploadedById  String
+  uploadedBy    User     @relation(fields: [uploadedById], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("hardware_drivers")
+}
+
+enum HardwareType {
+  IMPRESORA
+  ESCANER
+  TARJETA_RED
+  USB
+  DISCO_DURO
+  OPTICO
+  OTRO
+}

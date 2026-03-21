@@ -1,0 +1,13 @@
+{
+  "name": "repositorio-drivers",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:core-api": "npm run dev -w packages/core-api",
+    "dev:admin": "npm run dev -w packages/admin-portal",
+    "dev:public": "npm run dev -w packages/public-repo"
+  }
+}
