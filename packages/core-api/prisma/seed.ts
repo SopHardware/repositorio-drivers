@@ -6,8 +6,8 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Starting seed...');
 
-  const adminPassword = await passwordHasher.hash('AdminSistemas2024!');
-  const soportePassword = await passwordHasher.hash('SoporteWP2024!');
+  const adminPassword = await passwordHasher.hash('AdminSistemas2026!');
+  const soportePassword = await passwordHasher.hash('SoporteWP2026!');
 
   const adminUser = await prisma.user.upsert({
     where: { username: 'admin_sistemas' },

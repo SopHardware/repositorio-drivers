@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, HardwareDriver, User, HardwareType, UserRole } from '@prisma/client';
 import {
   IDriverRepository,
   IUserRepository,
@@ -6,7 +6,16 @@ import {
   UpdateDriverDTO,
   DriverFilters,
 } from '../interfaces/IRepository.js';
-import { User } from '@prisma/client';
+
+interface CursorParams {
+  id: number;
+  createdAt: Date;
+}
+
+interface PaginationParams {
+  limit: number;
+  cursor?: CursorParams;
+}
 
 export class PrismaDriverRepository implements IDriverRepository {
   private static instance: PrismaDriverRepository;
@@ -23,15 +32,7 @@ export class PrismaDriverRepository implements IDriverRepository {
     return PrismaDriverRepository.instance;
   }
 
-  async create(data: CreateDriverDTO): Promise<import('@prisma/client').HardwareDriver> {
-    return this.prisma.hardwareDriver.create({ data });
-  }
-
-  async findById(id: number): Promise<import('@prisma/client').HardwareDriver | null> {
-    return this.prisma.hardwareDriver.findUnique({ where: { id } });
-  }
-
-  async findAll(filters?: DriverFilters): Promise<import('@prisma/client').HardwareDriver[]> {
+  private buildWhereClause(filters?: DriverFilters): any {
     const where: any = {};
 
     if (filters?.brand) {
@@ -51,10 +52,51 @@ export class PrismaDriverRepository implements IDriverRepository {
       ];
     }
 
-    return this.prisma.hardwareDriver.findMany({ where });
+    return where;
   }
 
-  async update(id: number, data: UpdateDriverDTO): Promise<import('@prisma/client').HardwareDriver> {
+  async create(data: CreateDriverDTO): Promise<HardwareDriver> {
+    return this.prisma.hardwareDriver.create({ data });
+  }
+
+  async findById(id: number): Promise<HardwareDriver | null> {
+    return this.prisma.hardwareDriver.findUnique({ where: { id } });
+  }
+
+  async findAll(filters?: DriverFilters): Promise<HardwareDriver[]> {
+    const where = this.buildWhereClause(filters);
+    return this.prisma.hardwareDriver.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findAllWithCursor(
+    filters: DriverFilters,
+    pagination: PaginationParams
+  ): Promise<HardwareDriver[]> {
+    const where: any = this.buildWhereClause(filters);
+
+    if (pagination.cursor) {
+      where.OR = [
+        { createdAt: { lt: pagination.cursor.createdAt } },
+        {
+          AND: [
+            { createdAt: { equals: pagination.cursor.createdAt } },
+            { id: { lt: pagination.cursor.id } },
+          ],
+        },
+      ];
+    }
+
+    return this.prisma.hardwareDriver.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: pagination.limit + 1,
+    });
+  }
+
+  async update(id: number, data: UpdateDriverDTO): Promise<HardwareDriver> {
     return this.prisma.hardwareDriver.update({ where: { id }, data });
   }
 
@@ -63,19 +105,7 @@ export class PrismaDriverRepository implements IDriverRepository {
   }
 
   async count(filters?: DriverFilters): Promise<number> {
-    const where: any = {};
-
-    if (filters?.brand) where.brand = { contains: filters.brand, mode: 'insensitive' };
-    if (filters?.model) where.model = { contains: filters.model, mode: 'insensitive' };
-    if (filters?.hardwareType) where.hardwareType = filters.hardwareType;
-    if (filters?.search) {
-      where.OR = [
-        { driverName: { contains: filters.search, mode: 'insensitive' } },
-        { brand: { contains: filters.search, mode: 'insensitive' } },
-        { model: { contains: filters.search, mode: 'insensitive' } },
-      ];
-    }
-
+    const where = this.buildWhereClause(filters);
     return this.prisma.hardwareDriver.count({ where });
   }
 }
@@ -97,7 +127,7 @@ export class PrismaUserRepository implements IUserRepository {
 
   async create(username: string, passwordHash: string, role: string): Promise<User> {
     return this.prisma.user.create({
-      data: { username, passwordHash, role: role as any },
+      data: { username, passwordHash, role: role as UserRole },
     });
   }
 
@@ -107,6 +137,27 @@ export class PrismaUserRepository implements IUserRepository {
 
   async findById(id: string): Promise<User | null> {
     return this.prisma.user.findUnique({ where: { id } });
+  }
+
+  async findAll(): Promise<User[]> {
+    return this.prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findByRole(role: UserRole): Promise<User[]> {
+    return this.prisma.user.findMany({ where: { role } });
+  }
+
+  async updatePassword(id: string, passwordHash: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id },
+      data: { passwordHash },
+    });
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.prisma.user.delete({ where: { id } });
   }
 }
 
