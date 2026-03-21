@@ -1,4 +1,5 @@
 import Fastify, { FastifyInstance, FastifyError, FastifyRequest, FastifyReply } from 'fastify';
+import multipart from '@fastify/multipart';
 import { authRoutes } from './routes/auth.js';
 import { driverRoutes } from './routes/drivers.js';
 import { userRoutes } from './routes/users.js';
@@ -6,6 +7,12 @@ import { HttpError } from './utils/errors.js';
 
 const fastify: FastifyInstance = Fastify({
   logger: true,
+});
+
+fastify.register(multipart, {
+  limits: {
+    fileSize: 128 * 1024 * 1024,
+  },
 });
 
 fastify.get('/health', async () => ({ status: 'ok', timestamp: new Date().toISOString() }));
