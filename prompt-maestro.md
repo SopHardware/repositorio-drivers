@@ -1,72 +1,378 @@
-Prompt: Sistema de Repositorio de Drivers "Boxito" - Arquitectura Triple Capa
-Contexto:
-Actúa como un Arquitecto de Software Senior y Experto en Ciberseguridad. Vamos a construir desde cero el "Repositorio de Drivers Boxito". El sistema debe seguir una Arquitectura de Triple Capa (Capa de Datos, Capa de Gestión y Capa Pública) para garantizar que los secretos (DB y Google Drive) nunca estén expuestos en los servidores de interfaz.
+# PROMPT-MAESTRO: Repositorio de Drivers "Boxito"
 
-Objetivos Principales:
+## ⚠️ IMPORTANTE: Lee antes de empezar
 
-Seguridad Zero Trust: Solo el core-api tiene acceso a PostgreSQL (Prisma) y Google Drive.
+Este documento establece las reglas y procesos que **DEBEN** seguirse **ANTES** de escribir cualquier código. Todo desarrollador o IA que trabaje en este proyecto debe conocer y aplicar estas reglas.
 
-SOLID & Clean Code: Uso estricto de patrones de diseño (Repository, Service, Singleton).
+---
 
-Vibe Coding: Código intuitivo, modular y altamente mantenible.
+## 1. REGLAS OBLIGATORIAS (Pre-Codificación)
 
-Desacoplamiento Total: Los Dashboards consumen el Core mediante fetch de servidor a servidor con rotación de API Keys.
+### 🔴 REGLA 1: Análisis Primero
+- **OBLIGATORIO** leer los skills relacionados en `docs/skills/` antes de modificar código
+- Revisar código existente en la rama `developer`
+- Identificar todos los archivos relacionados antes de empezar
 
-1. Estructura del Proyecto (Monorepo)
-Crea la siguiente estructura de carpetas:
+### 🔴 REGLA 2: Plan Obligatorio
+- **NUNCA** codificar sin un plan aprobado
+- Crear plan de acción por escrito antes de implementar
+- El plan debe incluir: **qué**, **cómo**, **dónde**, **qué tests** se necesitan
 
-/packages/core-api: Node.js (Fastify o Next.js API-only). Poseedor de .env.
+### 🔴 REGLA 3: Seguridad Zero Trust
+- **NUNCA** colocar credenciales en código
+- **NUNCA** usar Prisma en admin-portal o public-repo
+- **NUNCA** exponer URLs de Google Drive directamente al cliente
+- Usar **exclusivamente** Variables de Entorno (.env)
+- Solo `core-api` tiene acceso a DB y Google Drive
 
-/packages/admin-portal: Next.js + Tailwind. Interfaz de gestión (Carga/Usuarios).
+### 🔴 REGLA 4: Testing Requerido
+- **Todo service nuevo** requiere test unitario
+- **Todo endpoint nuevo** requiere verificación
+- Ejecutar tests antes de hacer commit
+- Mantener coverage > 70%
 
-/packages/public-repo: Next.js + Tailwind. Interfaz de búsqueda y descarga (Ligera).
+### 🔴 REGLA 5: Commits Significativos
+- Usar **conventional commits** con fase
+- Formato: `<tipo>(<paquete>): <descripción>`
+- **PROHIBIDO** commits como "arreglos", "cambios", "fix"
 
-2. Stack Tecnológico & Seguridad
-Lenguaje: TypeScript (Estricto).
+---
 
-Base de Datos: PostgreSQL + Prisma ORM.
+## 2. ARQUITECTURA DEL PROYECTO
 
-Auth: Bcryptjs para passwordHash. JWT para comunicación entre capas.
+### Estructura de Triple Capa
 
-Storage: Google Drive API (v3) gestionado mediante Streams para no saturar memoria.
+```
+┌─────────────────────────────────────────────────────────────┐
+│ CAPA PÚBLICA (admin-portal, public-repo)                    │
+├─────────────────────────────────────────────────────────────┤
+│ ✅ PUEDE:                                                   │
+│   - UI/UX con React + Tailwind                               │
+│   - fetch() al core-api                                     │
+│   - Manejo de estado local (useState, useContext)          │
+│   - Autenticación JWT (solo admin-portal)                    │
+│   - Diseño con paleta Boxito (#EA0B2A)                      │
+│                                                               │
+│ ❌ NO PUEDE:                                                │
+│   - Acceder a PostgreSQL directamente                        │
+│   - Importar @prisma/client                                  │
+│   - Consumir Google Drive API                                │
+│   - Guardar credenciales en código                           │
+│   - Importar clases de repositories de core-api             │
+└─────────────────────────────────────────────────────────────┘
 
-Componentes: React con Atomic Design y Tailwind CSS.
+┌─────────────────────────────────────────────────────────────┐
+│ CAPA CORE (core-api)                                        │
+├─────────────────────────────────────────────────────────────┤
+│ ✅ SOLO ESTE PAQUETE PUEDE:                                 │
+│   - Conectar a PostgreSQL (Prisma)                           │
+│   - Consumir Google Drive API                                │
+│   - Manejar autenticación JWT                                │
+│   - Proteger rutas por rol (ADMIN_SISTEMAS, SOPORTE_WP)     │
+│   - actuar como proxy para descargas                        │
+└─────────────────────────────────────────────────────────────┘
+```
 
-3. Definición del Modelo (Prisma)
-El esquema debe contener:
+### Roles de Usuarios
 
-User: id (CUID), username (unique), passwordHash, role. (Sin campo 'name' por requerimiento).
+| Rol | Permisos |
+|-----|----------|
+| ADMIN_SISTEMAS | Acceso total (users, drivers) |
+| SOPORTE_WP | Gestionar drivers (crear, editar, eliminar) |
+| CONSULTA | Solo lectura (no implementado aún) |
 
-HardwareDriver: id (Int), driverName, brand, model, version, hardwareType, driveFileId, fileExtension, fileSize, uploadedById, createdAt.
+---
 
-4. Reglas de Implementación (SOLID)
-Single Responsibility: Los componentes de UI solo renderizan. La lógica de negocio vive en services.
+## 3. STACK TECNOLÓGICO
 
-Open/Closed: El sistema de almacenamiento debe ser una interfaz IStorage para permitir cambiar Google Drive por S3 en el futuro.
+### Tecnologías Permitidas
 
-Interface Segregation: Los Dashboards solo reciben los datos exactos que necesitan.
+| Capa | Tecnología | Versión |
+|------|------------|---------|
+| Backend | Node.js + Fastify | 18+ |
+| Base de Datos | PostgreSQL + Prisma | 5.x |
+| Frontend | Next.js + React | 14.x |
+| Estilos | Tailwind CSS | 3.x |
+| Auth | JWT + bcryptjs | - |
+| Storage | Google Drive API v3 | - |
+| Testing | Vitest | 1.x |
+| Lenguaje | TypeScript (estricto) | 5.x |
 
-5. Lógica de Flujo de Datos
-Carga (Admin): admin-portal -> Stream -> core-api -> Google Drive.
+### Dependencias PROHIBIDAS
 
-Búsqueda (Público): public-repo -> fetch -> core-api -> PostgreSQL.
+- **NO usar Axios** - usar fetch nativo
+- **NO usar Sequelize** - usar Prisma
+- **NO usar MongoDB** - usar PostgreSQL
+- **NO usar SQLite en producción** - solo PostgreSQL
 
-Descarga (Público): El core-api actúa como proxy (Pasamanos) enviando el stream de Drive al public-repo para ocultar la URL real de Google.
+---
 
-Instrucciones de Inicio:
-Empecemos con la Fase 1: El Núcleo (core-api).
+## 4. PAUTAS DE DESARROLLO
 
-Genera el archivo schema.prisma basado en las definiciones anteriores.
+### Patrones SOLID (OBLIGATORIOS)
 
-Crea la lógica de encriptación de contraseñas (PasswordHasher).
+```
+Single Responsibility:
+  → Los componentes de UI solo renderizan
+  → La lógica de negocio vive en services
+  → Los repositorios solo acceden a datos
 
-Define la interfaz IDriverRepository y su implementación con Prisma.
+Open/Closed:
+  → IStorage interfaz para permitir cambio de proveedor
+  → No modificar clases existentes, extenderlas
 
-Crea el script de seed.ts para los usuarios admin_sistemas y soporte_wp.
+Interface Segregation:
+  → Dashboards solo reciben datos que necesitan
+  → DTOs específicos para cada operación
 
-¿Por qué este prompt es efectivo?
-Establece Fronteras: Define qué sabe cada servidor y qué no (evita que la IA intente meter Prisma en el servidor público).
+Dependency Inversion:
+  → Depender de abstracciones, no de implementaciones
+  → Usar interfaces para repositories y services
+```
 
-Fuerza Calidad: Al mencionar SOLID y Clean Code, la IA evitará escribir funciones gigantes y preferirá clases y métodos pequeños.
+### Convenciones de Código
 
-Seguridad Nativa: Incluye el manejo de passwordHash y el flujo de Streams para archivos grandes (128MB+).
+- **Archivos**: camelCase (`.ts`, `.tsx`)
+- **Componentes**: PascalCase
+- **Constantes**: UPPER_SNAKE_CASE
+- **Interfaces**: Prefijo `I` (ej: `IDriverRepository`)
+- **Types**: Prefijo según tipo (ej: `DriverFilters`)
+
+---
+
+## 5. PROCESO DE TRABAJO (Flujo Obligatorio)
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                 FLUJO DE DESARROLLO                        │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  1. 📖 ANALISIS                                           │
+│     ├─ Leer prompt-maestro.md completo                   │
+│     ├─ Revisar skills relacionados                       │
+│     └─ Identificar dependencias                          │
+│                          ↓                                 │
+│  2. 📝 PLANIFICACIÓN (OBLIGATORIO)                        │
+│     ├─ Crear plan por escrito                             │
+│     ├─ Listar archivos a modificar                        │
+│     ├─ Listar nuevos archivos                            │
+│     ├─ Definir tests necesarios                           │
+│     └─ Presentar para validación                         │
+│                          ↓                                 │
+│  3. ✅ APROBACIÓN                                         │
+│     └─ Esperar validación del plan                        │
+│                          ↓                                 │
+│  4. 💻 IMPLEMENTACIÓN                                     │
+│     ├─ Codificar según plan aprobado                     │
+│     ├─ Aplicar patrones SOLID                            │
+│     └─ Mantener código limpio                            │
+│                          ↓                                 │
+│  5. 🧪 TESTING                                            │
+│     ├─ Ejecutar tests existentes                         │
+│     ├─ Agregar tests para nuevo código                   │
+│     └─ Verificar coverage                                │
+│                          ↓                                 │
+│  6. 📦 COMMIT                                             │
+│     ├─ Usar conventional commits                         │
+│     ├─ Incluir referencia a fase                          │
+│     └─ push a rama developer                             │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. CONVENCIONES DE COMMIT
+
+### Formato Obligatorio
+
+```
+<tipo>(<paquete>): <descripción>
+
+Ejemplos:
+- feat(core-api): agregar endpoint de refresh token
+- fix(public-repo): corregir paginación de drivers
+- docs(admin-portal): actualizar README
+- test(core-api): agregar tests de AuthService
+- refactor(database): optimizar query de drivers
+- chore(storage): actualizar configuración de Drive
+```
+
+### Tipos de Commit
+
+| Tipo | Descripción |
+|------|-------------|
+| feat | Nueva funcionalidad |
+| fix | Corrección de bug |
+| docs | Documentación |
+| refactor | Refactorización (sin cambio funcional) |
+| test | Tests |
+| chore | Mantenimiento |
+
+### Fases del Proyecto
+
+| Fase | Descripción |
+|------|-------------|
+| fase-1 | Estructura base (core-api) |
+| fase-2 | Autenticación JWT |
+| fase-3 | Proxy Google Drive |
+| fase-4 | admin-portal |
+| fase-5 | public-repo |
+
+---
+
+## 7. MODELO DE DATOS (Prisma)
+
+### Esquema Actual
+
+```prisma
+model User {
+  id           String     @id @default(cuid())
+  username     String     @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  drivers      HardwareDriver[]
+
+  @@map("users")
+}
+
+model HardwareDriver {
+  id            Int       @id @default(autoincrement())
+  driverName    String
+  brand         String
+  model         String
+  version       String
+  hardwareType  HardwareType
+  driveFileId   String
+  fileExtension String
+  fileSize      Int
+  uploadedById  String
+  uploadedBy    User      @relation(fields: [uploadedById], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("hardware_drivers")
+}
+
+enum UserRole {
+  ADMIN_SISTEMAS
+  SOPORTE_WP
+  CONSULTA
+}
+
+enum HardwareType {
+  IMPRESORA
+  ESCANER
+  TARJETA_RED
+  USB
+  DISCO_DURO
+  OPTICO
+  OTRO
+}
+```
+
+---
+
+## 8. FLUJO DE DATOS
+
+```
+┌────────────────┐     ┌────────────────┐     ┌────────────────┐
+│  admin-portal  │────▶│   core-api     │────▶│  PostgreSQL    │
+│                │     │                │     │    (Prisma)    │
+└────────────────┘     └────────┬───────┘     └────────────────┘
+                                 │
+                                 ▼
+                        ┌────────────────┐
+                        │ Google Drive   │
+                        │   (Storage)    │
+                        └────────────────┘
+
+┌────────────────┐     ┌────────────────┐
+│  public-repo   │────▶│   core-api     │
+│                │     │  (solo lectura)│
+└────────────────┘     └────────────────┘
+```
+
+### Operaciones
+
+1. **Carga (Admin)**: admin-portal → Stream → core-api → Google Drive
+2. **Búsqueda (Público)**: public-repo → fetch → core-api → PostgreSQL
+3. **Descarga (Público)**: core-api hace proxy del stream de Drive
+
+---
+
+## 9. PALETA DE COLORES (Diseño)
+
+| Color | Hex | Variable | Uso |
+|-------|-----|----------|-----|
+| Rojo Primario | `#EA0B2A` | `brand-red` | Botones, logo, acentos |
+| Fondo Principal | `#FFFCFD` | `app-bg` | Fondo general |
+| Negro Profundo | `#000000` | `text-main` | Títulos |
+| Gris Soporte | `#6B7280` | `text-muted` | Textos secundarios |
+| Gris Borde | `#E5E7EB` | `border-soft` | Divisores |
+| Blanco Puro | `#FFFFFF` | `card-bg` | Tarjetas |
+
+---
+
+## 10. DOCUMENTACIÓN DE REFERENCIA
+
+### Skills Disponibles
+
+Antes de modificar código, **OBLIGATORIO** revisar el skill correspondiente:
+
+| Skill | Ubicación | Uso para |
+|-------|-----------|----------|
+| boxito-backend-api | `docs/skills/boxito-backend-api.md` | Modificar core-api |
+| boxito-admin-frontend | `docs/skills/boxito-admin-frontend.md` | Modificar admin-portal |
+| boxito-public-frontend | `docs/skills/boxito-public-frontend.md` | Modificar public-repo |
+| boxito-database | `docs/skills/boxito-database.md` | Cambios en Prisma/schema |
+| boxito-storage | `docs/skills/boxito-storage.md` | Cambios en almacenamiento |
+
+### Estructura del Proyecto
+
+```
+repositorio-drivers/
+├── packages/
+│   ├── core-api/           # API REST (Fastify)
+│   ├── admin-portal/       # Panel admin (Next.js)
+│   └── public-repo/        # Repositorio público (Next.js)
+├── docs/
+│   ├── skills/             # Skills de referencia
+│   └── ...
+├── prompt-maestro.md       # Este documento
+└── README.md
+```
+
+---
+
+## 11. VALIDACIÓN DE IMPLEMENTACIÓN
+
+Antes de cada commit, verificar:
+
+- [ ] Tests pasan (`npm test`)
+- [ ] Linting pasa (`npm run lint` si existe)
+- [ ] No hay console.log() en producción
+- [ ] Variables de entorno en .env (no hardcodeadas)
+- [ ] Nuevos archivos importados correctamente
+- [ ] Commits siguen formato conventional
+
+---
+
+## Resumen: Antes de Codificar
+
+```
+1️⃣  Leer prompt-maestro.md
+2️⃣  Revisar skill relacionado
+3️⃣  Crear plan por escrito
+4️⃣  Obtener aprobación
+5️⃣  Implementar con SOLID
+6️⃣  Agregar tests
+7️⃣  Verificar funcionamiento
+8️⃣  Commit con formato correcto
+```
+
+---
+
+**NOTA:** Este prompt debe actualizarse cuando se agreguen nuevas tecnologías o procesos al proyecto. Cualquier cambio debe seguir el mismo flujo de planificación establecido.
