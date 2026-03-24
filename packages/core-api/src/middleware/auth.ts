@@ -1,43 +1,44 @@
-import { FastifyRequest, FastifyReply } from 'fastify';
-import { authService } from '../services/AuthService.js';
-import { TokenPayload } from '../services/AuthService.js';
+import { Request, Response, NextFunction } from 'express';
+import { authService, TokenPayload } from '../services/AuthService.js';
 import { UserRole } from '@prisma/client';
 import { UnauthorizedError, ForbiddenError } from '../utils/errors.js';
 
-declare module 'fastify' {
-  interface FastifyRequest {
-    user?: TokenPayload;
-  }
+export interface AuthenticatedRequest extends Request {
+  user?: TokenPayload;
 }
 
-export const authMiddleware = async (
-  request: FastifyRequest,
-  reply: FastifyReply
-): Promise<void> => {
-  const authHeader = request.headers.authorization;
+export const authMiddleware = (
+  req: AuthenticatedRequest,
+  _res: Response,
+  next: NextFunction
+): void => {
+  const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new UnauthorizedError('Token de autenticación requerido');
+    return next(new UnauthorizedError('Token de autenticación requerido'));
   }
 
   const token = authHeader.substring(7);
 
   try {
     const payload = authService.verify(token);
-    request.user = payload;
+    req.user = payload;
+    next();
   } catch {
-    throw new UnauthorizedError('Token inválido o expirado');
+    next(new UnauthorizedError('Token inválido o expirado'));
   }
 };
 
 export const requireRole = (...allowedRoles: UserRole[]) => {
-  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
-    if (!request.user) {
-      throw new UnauthorizedError('Token de autenticación requerido');
+  return (req: AuthenticatedRequest, _res: Response, next: NextFunction): void => {
+    if (!req.user) {
+      return next(new UnauthorizedError('Token de autenticación requerido'));
     }
 
-    if (!allowedRoles.includes(request.user.role)) {
-      throw new ForbiddenError('No tienes permisos para realizar esta acción');
+    if (!allowedRoles.includes(req.user.role)) {
+      return next(new ForbiddenError('No tienes permisos para realizar esta acción'));
     }
+
+    next();
   };
 };

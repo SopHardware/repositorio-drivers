@@ -1,0 +1,879 @@
+openapi: 3.0.0
+info:
+  title: Repositorio Drivers API
+  description: |
+    API para gestión de drivers de hardware.
+    - **auth**: Endpoints de autenticación (login, refresh token)
+    - **drivers**: Gestión de drivers (CRUD, upload, download)
+    - **users**: Gestión de usuarios (solo administradores)
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+    description: Development server
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: Nombre de usuario
+        password:
+          type: string
+          minLength: 6
+          description: Contraseña del usuario
+    RefreshTokenRequest:
+      type: object
+      required:
+        - refreshToken
+      properties:
+        refreshToken:
+          type: string
+          description: Refresh token válido
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          description: JWT token de acceso
+        refreshToken:
+          type: string
+          description: JWT token de refresh
+    Driver:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        driverName:
+          type: string
+        brand:
+          type: string
+        model:
+          type: string
+        version:
+          type: string
+        hardwareType:
+          type: string
+          enum: [IMPRESORA, ESCANER, TARJETA_RED, USB, DISCO_DURO, OPTICO, OTRO]
+        driveFileId:
+          type: string
+        fileExtension:
+          type: string
+        fileSize:
+          type: integer
+          format: int64
+        uploadedById:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    CreateDriverRequest:
+      type: object
+      required:
+        - driverName
+        - brand
+        - model
+        - version
+        - hardwareType
+        - driveFileId
+        - fileExtension
+        - fileSize
+      properties:
+        driverName:
+          type: string
+          maxLength: 200
+        brand:
+          type: string
+          maxLength: 100
+        model:
+          type: string
+          maxLength: 100
+        version:
+          type: string
+          maxLength: 50
+        hardwareType:
+          type: string
+          enum: [IMPRESORA, ESCANER, TARJETA_RED, USB, DISCO_DURO, OPTICO, OTRO]
+        driveFileId:
+          type: string
+        fileExtension:
+          type: string
+          maxLength: 20
+        fileSize:
+          type: integer
+          format: int64
+    UpdateDriverRequest:
+      type: object
+      properties:
+        driverName:
+          type: string
+          maxLength: 200
+        brand:
+          type: string
+          maxLength: 100
+        model:
+          type: string
+          maxLength: 100
+        version:
+          type: string
+          maxLength: 50
+        hardwareType:
+          type: string
+          enum: [IMPRESORA, ESCANER, TARJETA_RED, USB, DISCO_DURO, OPTICO, OTRO]
+    DriverQueryParams:
+      type: object
+      properties:
+        cursor:
+          type: string
+          description: Cursor para paginación
+        limit:
+          type: integer
+          default: 20
+          minimum: 1
+          maximum: 100
+        brand:
+          type: string
+        model:
+          type: string
+        hardwareType:
+          type: string
+          enum: [IMPRESORA, ESCANER, TARJETA_RED, USB, DISCO_DURO, OPTICO, OTRO]
+        search:
+          type: string
+          description: Búsqueda en driverName, brand o model
+    FileMetadata:
+      type: object
+      properties:
+        fileId:
+          type: string
+        fileName:
+          type: string
+        fileSize:
+          type: integer
+          format: int64
+        mimeType:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    UploadResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            driveFileId:
+              type: string
+            fileName:
+              type: string
+            fileSize:
+              type: integer
+              format: int64
+            mimeType:
+              type: string
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        role:
+          type: string
+          enum: [ADMIN_SISTEMAS, SOPORTE_WP, CONSULTA]
+        createdAt:
+          type: string
+          format: date-time
+    CreateUserRequest:
+      type: object
+      required:
+        - username
+        - password
+        - role
+      properties:
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+        password:
+          type: string
+          minLength: 6
+          maxLength: 100
+        role:
+          type: string
+          enum: [ADMIN_SISTEMAS, SOPORTE_WP, CONSULTA]
+    UpdatePasswordRequest:
+      type: object
+      required:
+        - currentPassword
+        - newPassword
+      properties:
+        currentPassword:
+          type: string
+        newPassword:
+          type: string
+          minLength: 6
+          maxLength: 100
+    ApiResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+        pagination:
+          type: object
+          properties:
+            nextCursor:
+              type: string
+              nullable: true
+            hasMore:
+              type: boolean
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+  responses:
+    UnauthorizedError:
+      description: No autorizado - Token inválido o faltante
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+    ForbiddenError:
+      description: Prohibido - No tiene permisos
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+    NotFoundError:
+      description: No encontrado
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+    ConflictError:
+      description: Conflicto - Recurso ya existe
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+    BadRequestError:
+      description: Solicitud inválida
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+              error:
+                type: object
+                properties:
+                  code:
+                    type: string
+                  message:
+                    type: string
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      description: Verifica que el servicio esté funcionando
+      tags:
+        - Health
+      responses:
+        '200':
+          description: Servicio saludable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  timestamp:
+                    type: string
+
+  /auth/login:
+    post:
+      summary: Iniciar sesión
+      description: Autentica usuario y retorna tokens JWT
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login exitoso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /auth/refresh:
+    post:
+      summary: Refresh token
+      description: Refresca el token de acceso usando refresh token
+      tags:
+        - Auth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '200':
+          description: Token refrescado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+
+  /drivers:
+    get:
+      summary: Listar drivers
+      description: Lista drivers con paginación y filtros
+      tags:
+        - Drivers
+      parameters:
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: brand
+          in: query
+          schema:
+            type: string
+        - name: model
+          in: query
+          schema:
+            type: string
+        - name: hardwareType
+          in: query
+          schema:
+            type: string
+            enum: [IMPRESORA, ESCANER, TARJETA_RED, USB, DISCO_DURO, OPTICO, OTRO]
+        - name: search
+          in: query
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de drivers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Driver'
+                  pagination:
+                    type: object
+                    properties:
+                      nextCursor:
+                        type: string
+                        nullable: true
+                      hasMore:
+                        type: boolean
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+    post:
+      summary: Crear driver
+      description: Crea un nuevo driver (solo ADMIN_SISTEMAS, SOPORTE_WP)
+      tags:
+        - Drivers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDriverRequest'
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Driver creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Driver'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /drivers/{id}:
+    get:
+      summary: Obtener driver por ID
+      tags:
+        - Drivers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Driver encontrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Driver'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    put:
+      summary: Actualizar driver
+      description: Actualiza un driver (solo ADMIN_SISTEMAS, SOPORTE_WP)
+      tags:
+        - Drivers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateDriverRequest'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Driver actualizado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/Driver'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      summary: Eliminar driver
+      description: Elimina un driver (solo ADMIN_SISTEMAS)
+      tags:
+        - Drivers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Driver eliminado
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /drivers/upload:
+    post:
+      summary: Subir archivo de driver
+      description: Sube un archivo de driver (solo ADMIN_SISTEMAS, SOPORTE_WP)
+      tags:
+        - Drivers
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Archivo del driver
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Archivo subido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+  /drivers/{id}/download:
+    get:
+      summary: Descargar archivo de driver
+      tags:
+        - Drivers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Archivo para descargar
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /drivers/{id}/file:
+    get:
+      summary: Obtener metadatos del archivo
+      tags:
+        - Drivers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Metadatos del archivo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/FileMetadata'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      summary: Eliminar archivo del driver
+      description: Elimina el archivo asociado a un driver (solo ADMIN_SISTEMAS, SOPORTE_WP)
+      tags:
+        - Drivers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Archivo eliminado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /users:
+    get:
+      summary: Listar usuarios
+      description: Lista todos los usuarios (solo ADMIN_SISTEMAS)
+      tags:
+        - Users
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de usuarios
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+
+    post:
+      summary: Crear usuario
+      description: Crea un nuevo usuario (solo ADMIN_SISTEMAS)
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Usuario creado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+
+  /users/{id}:
+    get:
+      summary: Obtener usuario por ID
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Usuario encontrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+    delete:
+      summary: Eliminar usuario
+      description: Elimina un usuario (solo ADMIN_SISTEMAS)
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Usuario eliminado
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  /users/{id}/password:
+    put:
+      summary: Actualizar contraseña
+      description: Actualiza la contraseña de un usuario (solo ADMIN_SISTEMAS)
+      tags:
+        - Users
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePasswordRequest'
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Contraseña actualizada
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'

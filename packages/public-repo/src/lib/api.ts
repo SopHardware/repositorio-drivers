@@ -1,64 +1,16 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import axios, { AxiosError } from 'axios';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 const DEFAULT_TIMEOUT = 10000;
-const MAX_RETRIES = 3;
-const BASE_DELAY = 1000;
 
-const CACHE_STRATEGIES = {
-  SHORT: { revalidate: 60 },
-  MEDIUM: { revalidate: 300 },
-  LONG: { revalidate: 3600 },
-  NONE: { cache: 'no-store' }
-} as const;
-
-async function fetchWithTimeout(
-  url: string,
-  options: RequestInit = {},
-  timeout = DEFAULT_TIMEOUT
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-    return response;
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit = {},
-  retries = MAX_RETRIES,
-  baseDelay = BASE_DELAY
-): Promise<Response> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const response = await fetchWithTimeout(url, options);
-
-      if (!response.ok && response.status < 500) {
-        return response;
-      }
-
-      if (!response.ok && attempt < retries - 1) {
-        const delay = baseDelay * Math.pow(2, attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-
-      return response;
-    } catch (error) {
-      if (attempt === retries - 1) throw error;
-      const delay = baseDelay * Math.pow(2, attempt);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-  }
-  throw new Error('Max retries exceeded');
-}
+const api = axios.create({
+  baseURL: API_URL,
+  timeout: DEFAULT_TIMEOUT,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
 export interface HardwareDriver {
   id: number;
@@ -105,12 +57,12 @@ export interface DriverListResponse {
   };
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Error desconocido' }));
-    throw new Error(error.error?.message || error.message || 'Error en la petición');
+function handleError(error: unknown): Error {
+  if (axios.isAxiosError(error)) {
+    const responseData = error.response?.data as { error?: { message?: string }; message?: string };
+    return new Error(responseData?.error?.message || responseData?.message || 'Error en la petición');
   }
-  return response.json();
+  return new Error('Error desconocido');
 }
 
 export async function getDrivers(params: {
@@ -127,51 +79,35 @@ export async function getDrivers(params: {
   if (params.limit) searchParams.set('limit', params.limit.toString());
 
   const queryString = searchParams.toString();
-  const url = `${API_URL}/drivers${queryString ? `?${queryString}` : ''}`;
+  const url = `/drivers${queryString ? `?${queryString}` : ''}`;
 
-  const response = await fetchWithRetry(
-    url,
-    {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      next: CACHE_STRATEGIES.SHORT,
-    },
-    MAX_RETRIES,
-    BASE_DELAY
-  );
+  try {
+    const response = await api.get<ApiResponse<HardwareDriver[]>>(url);
+    const result = response.data;
 
-  const result = await handleResponse<ApiResponse<HardwareDriver[]>>(response);
-
-  return {
-    drivers: result.data || [],
-    nextCursor: result.pagination?.nextCursor || null,
-    hasMore: result.pagination?.hasMore || false,
-  };
+    return {
+      drivers: result.data || [],
+      nextCursor: result.pagination?.nextCursor || null,
+      hasMore: result.pagination?.hasMore || false,
+    };
+  } catch (error) {
+    throw handleError(error);
+  }
 }
 
 export async function getDriver(id: number): Promise<HardwareDriver> {
-  const response = await fetchWithRetry(
-    `${API_URL}/drivers/${id}`,
-    {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      next: CACHE_STRATEGIES.MEDIUM,
-    },
-    MAX_RETRIES,
-    BASE_DELAY
-  );
+  try {
+    const response = await api.get<ApiResponse<HardwareDriver>>(`/drivers/${id}`);
+    const result = response.data;
 
-  const result = await handleResponse<ApiResponse<HardwareDriver>>(response);
+    if (!result.data) {
+      throw new Error('Driver no encontrado');
+    }
 
-  if (!result.data) {
-    throw new Error('Driver no encontrado');
+    return result.data;
+  } catch (error) {
+    throw handleError(error);
   }
-
-  return result.data;
 }
 
 export function getDriverDownloadUrl(id: number): string {

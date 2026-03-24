@@ -1,4 +1,4 @@
-import { FastifyInstance, FastifyRequest } from 'fastify';
+import { Router, Request, Response, NextFunction } from 'express';
 import { driverRepository } from '../repositories/PrismaRepository.js';
 import { storage } from '../services/StorageFactory.js';
 import {
@@ -9,9 +9,8 @@ import {
   UpdateDriverInput,
   DriverQueryInput,
 } from '../dto/index.js';
-import { authMiddleware, requireRole } from '../middleware/auth.js';
+import { authMiddleware, requireRole, AuthenticatedRequest } from '../middleware/auth.js';
 import { NotFoundError, BadRequestError } from '../utils/errors.js';
-import { MultipartFile } from '@fastify/multipart';
 
 interface CursorParams {
   id: number;
@@ -36,86 +35,105 @@ function getMimeType(extension: string): string {
   return mimeTypes[extension] || 'application/octet-stream';
 }
 
-export async function driverRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.addHook('onRequest', authMiddleware);
+export const driverRouter = Router();
 
-  fastify.get<{ Querystring: DriverQueryInput }>(
-    '/',
-    { schema: { querystring: DriverQuerySchema } },
-    async (request, reply) => {
-      const { cursor, limit, brand, model, hardwareType, search } = request.query;
+driverRouter.use(authMiddleware);
 
-      const drivers = await driverRepository.findAllWithCursor(
-        { brand, model, hardwareType, search },
-        {
-          limit: limit || 20,
-          cursor: cursor ? JSON.parse(cursor) as CursorParams : undefined,
-        }
-      );
+driverRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { cursor, limit, brand, model, hardwareType, search } = req.query as unknown as DriverQueryInput;
 
-      const nextCursor =
-        drivers.length === limit
-          ? JSON.stringify({
-              id: drivers[drivers.length - 1].id,
-              createdAt: drivers[drivers.length - 1].createdAt,
-            })
-          : null;
+    const drivers = await driverRepository.findAllWithCursor(
+      { brand, model, hardwareType, search },
+      {
+        limit: limit || 20,
+        cursor: cursor ? JSON.parse(cursor) as CursorParams : undefined,
+      }
+    );
 
-      return reply.send({
-        success: true,
-        data: drivers,
-        pagination: { nextCursor, hasMore: !!nextCursor },
-      });
-    }
-  );
+    const nextCursor =
+      drivers.length === (limit || 20)
+        ? JSON.stringify({
+            id: drivers[drivers.length - 1].id,
+            createdAt: drivers[drivers.length - 1].createdAt,
+          })
+        : null;
 
-  fastify.get<{ Params: { id: string } }>(
-    '/:id',
-    async (request, reply) => {
-      const id = parseInt(request.params.id, 10);
-      if (isNaN(id)) throw new NotFoundError('Driver');
+    return res.json({
+      success: true,
+      data: drivers,
+      pagination: { nextCursor, hasMore: !!nextCursor },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
-      const driver = await driverRepository.findById(id);
-      if (!driver) throw new NotFoundError('Driver');
+driverRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) throw new NotFoundError('Driver');
 
-      return reply.send({ success: true, data: driver });
-    }
-  );
+    const driver = await driverRepository.findById(id);
+    if (!driver) throw new NotFoundError('Driver');
 
-  fastify.post<{ Body: CreateDriverInput }>(
-    '/',
-    { schema: { body: CreateDriverSchema } },
-    requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
-    async (request, reply) => {
+    return res.json({ success: true, data: driver });
+  } catch (error) {
+    next(error);
+  }
+});
+
+driverRouter.post(
+  '/',
+  requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const parseResult = CreateDriverSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        throw new BadRequestError(parseResult.error.errors[0].message);
+      }
+
       const driver = await driverRepository.create({
-        ...request.body,
-        uploadedById: request.user!.userId,
+        ...parseResult.data,
+        uploadedById: req.user!.userId,
       });
-      return reply.status(201).send({ success: true, data: driver });
+      return res.status(201).json({ success: true, data: driver });
+    } catch (error) {
+      next(error);
     }
-  );
+  }
+);
 
-  fastify.put<{ Params: { id: string }; Body: UpdateDriverInput }>(
-    '/:id',
-    { schema: { body: UpdateDriverSchema } },
-    requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
-    async (request, reply) => {
-      const id = parseInt(request.params.id, 10);
+driverRouter.put(
+  '/:id',
+  requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = parseInt(req.params.id, 10);
       if (isNaN(id)) throw new NotFoundError('Driver');
 
       const existing = await driverRepository.findById(id);
       if (!existing) throw new NotFoundError('Driver');
 
-      const driver = await driverRepository.update(id, request.body);
-      return reply.send({ success: true, data: driver });
-    }
-  );
+      const parseResult = UpdateDriverSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        throw new BadRequestError(parseResult.error.errors[0].message);
+      }
 
-  fastify.delete<{ Params: { id: string } }>(
-    '/:id',
-    requireRole('ADMIN_SISTEMAS'),
-    async (request, reply) => {
-      const id = parseInt(request.params.id, 10);
+      const driver = await driverRepository.update(id, parseResult.data);
+      return res.json({ success: true, data: driver });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+driverRouter.delete(
+  '/:id',
+  requireRole('ADMIN_SISTEMAS'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = parseInt(req.params.id, 10);
       if (isNaN(id)) throw new NotFoundError('Driver');
 
       const existing = await driverRepository.findById(id);
@@ -126,21 +144,25 @@ export async function driverRoutes(fastify: FastifyInstance): Promise<void> {
       }
       await driverRepository.delete(id);
 
-      return reply.status(204).send();
+      return res.status(204).send();
+    } catch (error) {
+      next(error);
     }
-  );
+  }
+);
 
-  fastify.post(
-    '/upload',
-    requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
-    async (request, reply) => {
-      const data = await request.file();
+driverRouter.post(
+  '/upload',
+  requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const file = (req as any).file;
 
-      if (!data) {
+      if (!file) {
         throw new BadRequestError('Archivo requerido');
       }
 
-      const fileName = data.filename;
+      const fileName = file.originalname;
       const extension = '.' + fileName.split('.').pop()?.toLowerCase();
 
       if (!ALLOWED_EXTENSIONS.includes(extension)) {
@@ -149,40 +171,16 @@ export async function driverRoutes(fastify: FastifyInstance): Promise<void> {
         );
       }
 
-      let size = 0;
-      const chunks: Uint8Array[] = [];
+      const size = file.size;
 
-      const reader = data.file;
-      const decoder = new TextDecoder();
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.length;
-          if (size > MAX_FILE_SIZE) {
-            throw new BadRequestError(`Archivo demasiado grande. Máximo: ${MAX_FILE_SIZE / 1024 / 1024}MB`);
-          }
-          chunks.push(value);
-        }
-      } catch (err: any) {
-        if (err.statusCode) throw err;
-        throw new BadRequestError('Error al leer el archivo');
+      if (size > MAX_FILE_SIZE) {
+        throw new BadRequestError(`Archivo demasiado grande. Máximo: ${MAX_FILE_SIZE / 1024 / 1024}MB`);
       }
 
-      const stream = new ReadableStream<Uint8Array>({
-        start(controller) {
-          for (const chunk of chunks) {
-            controller.enqueue(chunk);
-          }
-          controller.close();
-        },
-      });
-
       const mimeType = getMimeType(extension);
-      const uploadResult = await storage.upload(fileName, mimeType, stream, size);
+      const uploadResult = await storage.upload(fileName, mimeType, file.buffer, size);
 
-      return reply.status(201).send({
+      return res.status(201).json({
         success: true,
         data: {
           driveFileId: uploadResult.fileId,
@@ -191,65 +189,71 @@ export async function driverRoutes(fastify: FastifyInstance): Promise<void> {
           mimeType: uploadResult.mimeType,
         },
       });
+    } catch (error) {
+      next(error);
     }
-  );
+  }
+);
 
-  fastify.get<{ Params: { id: string } }>(
-    '/:id/download',
-    async (request, reply) => {
-      const id = parseInt(request.params.id, 10);
-      if (isNaN(id)) throw new NotFoundError('Driver');
+driverRouter.get('/:id/download', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) throw new NotFoundError('Driver');
 
-      const driver = await driverRepository.findById(id);
-      if (!driver) throw new NotFoundError('Driver');
+    const driver = await driverRepository.findById(id);
+    if (!driver) throw new NotFoundError('Driver');
 
-      if (!driver.driveFileId) {
-        throw new NotFoundError('Archivo del driver no encontrado');
-      }
-
-      const { stream, metadata } = await storage.download(driver.driveFileId);
-
-      reply.header('Content-Type', metadata.mimeType);
-      reply.header('Content-Disposition', `attachment; filename="${metadata.fileName}"`);
-      reply.header('Content-Length', metadata.size);
-
-      return reply.send(stream);
+    if (!driver.driveFileId) {
+      throw new NotFoundError('Archivo del driver no encontrado');
     }
-  );
 
-  fastify.get<{ Params: { id: string } }>(
-    '/:id/file',
-    async (request, reply) => {
-      const id = parseInt(request.params.id, 10);
-      if (isNaN(id)) throw new NotFoundError('Driver');
+    const { stream, metadata } = await storage.download(driver.driveFileId);
 
-      const driver = await driverRepository.findById(id);
-      if (!driver) throw new NotFoundError('Driver');
+    res.setHeader('Content-Type', metadata.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${metadata.fileName}"`);
+    res.setHeader('Content-Length', metadata.size);
 
-      if (!driver.driveFileId) {
-        throw new NotFoundError('Archivo del driver no encontrado');
-      }
+    return res.send(stream);
+  } catch (error) {
+    next(error);
+  }
+});
 
-      const metadata = await storage.getMetadata(driver.driveFileId);
+driverRouter.get('/:id/file', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) throw new NotFoundError('Driver');
 
-      return reply.send({
-        success: true,
-        data: {
-          fileId: metadata.fileId,
-          fileName: metadata.fileName,
-          fileSize: metadata.size,
-          mimeType: metadata.mimeType,
-          createdAt: metadata.createdAt,
-        },
-      });
+    const driver = await driverRepository.findById(id);
+    if (!driver) throw new NotFoundError('Driver');
+
+    if (!driver.driveFileId) {
+      throw new NotFoundError('Archivo del driver no encontrado');
     }
-  );
 
-  fastify.delete<{ Params: { id: string } }>(
-    '/:id/file',
-    requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
-    async (request, reply) => {
-      const id = parseInt(request.params.id, 10);
+    const metadata = await storage.getMetadata(driver.driveFileId);
+
+    return res.json({
+      success: true,
+      data: {
+        fileId: metadata.fileId,
+        fileName: metadata.fileName,
+        fileSize: metadata.size,
+        mimeType: metadata.mimeType,
+        createdAt: metadata.createdAt,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+driverRouter.delete(
+  '/:id/file',
+  requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
+  async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    try {
+      const id = parseInt(req.params.id, 10);
       if (isNaN(id)) throw new NotFoundError('Driver');
 
       const driver = await driverRepository.findById(id);
@@ -268,7 +272,9 @@ export async function driverRoutes(fastify: FastifyInstance): Promise<void> {
         hardwareType: driver.hardwareType,
       } as any);
 
-      return reply.send({ success: true, message: 'Archivo eliminado' });
+      return res.json({ success: true, message: 'Archivo eliminado' });
+    } catch (error) {
+      next(error);
     }
-  );
-}
+  }
+);

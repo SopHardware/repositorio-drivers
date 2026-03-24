@@ -1,36 +1,58 @@
-import { FastifyInstance } from 'fastify';
+import { Router, Request, Response, NextFunction } from 'express';
+import { body, validationResult } from 'express-validator';
 import { authService } from '../services/AuthService.js';
-import { LoginSchema, RefreshTokenSchema, LoginInput, RefreshTokenInput } from '../dto/index.js';
+import { LoginInput, RefreshTokenInput, LoginSchema, RefreshTokenSchema } from '../dto/index.js';
 import { BadRequestError } from '../utils/errors.js';
 
-export async function authRoutes(fastify: FastifyInstance): Promise<void> {
-  fastify.post<{ Body: LoginInput }>(
-    '/login',
-    { schema: { body: LoginSchema } },
-    async (request, reply) => {
-      const { username, password } = request.body;
+export const authRouter = Router();
 
-      try {
-        const tokens = await authService.login(username, password);
-        return reply.send({ success: true, data: tokens });
-      } catch (error) {
-        throw new BadRequestError('Credenciales inválidas');
-      }
+const validateLogin = [
+  body('username').isLength({ min: 3, max: 50 }).withMessage('Username debe tener entre 3 y 50 caracteres'),
+  body('password').isLength({ min: 6 }).withMessage('Password debe tener al menos 6 caracteres'),
+  (req: Request, _res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new BadRequestError(errors.array()[0].msg));
     }
-  );
+    next();
+  },
+];
 
-  fastify.post<{ Body: RefreshTokenInput }>(
-    '/refresh',
-    { schema: { body: RefreshTokenSchema } },
-    async (request, reply) => {
-      const { refreshToken } = request.body;
-
-      try {
-        const tokens = await authService.refresh(refreshToken);
-        return reply.send({ success: true, data: tokens });
-      } catch (error) {
-        throw new BadRequestError('Refresh token inválido o expirado');
-      }
+const validateRefresh = [
+  body('refreshToken').notEmpty().withMessage('refreshToken es requerido'),
+  (req: Request, _res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return next(new BadRequestError(errors.array()[0].msg));
     }
-  );
-}
+    next();
+  },
+];
+
+authRouter.post(
+  '/login',
+  validateLogin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { username, password } = req.body as LoginInput;
+      const tokens = await authService.login(username, password);
+      return res.json({ success: true, data: tokens });
+    } catch (error) {
+      next(new BadRequestError('Credenciales inválidas'));
+    }
+  }
+);
+
+authRouter.post(
+  '/refresh',
+  validateRefresh,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { refreshToken } = req.body as RefreshTokenInput;
+      const tokens = await authService.refresh(refreshToken);
+      return res.json({ success: true, data: tokens });
+    } catch (error) {
+      next(new BadRequestError('Refresh token inválido o expirado'));
+    }
+  }
+);
