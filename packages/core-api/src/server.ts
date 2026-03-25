@@ -2,6 +2,8 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import swaggerUi from 'swagger-ui-express';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -9,6 +11,7 @@ import YAML from 'yaml';
 
 import { authRouter } from './routes/auth.js';
 import { driverRouter } from './routes/drivers.js';
+import { publicRepoRouter } from './routes/publicRepo.js';
 import { userRouter } from './routes/users.js';
 import { HttpError } from './utils/errors.js';
 
@@ -30,6 +33,25 @@ app.use(cors({
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(helmet());
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    success: false,
+    error: {
+      code: 'RATE_LIMIT',
+      message: 'Demasiados intentos de login. Intente de nuevo en 15 minutos.',
+    },
+  },
+});
+
+app.use((req: Request, _res: Response, next: NextFunction) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.url}`);
+  next();
+});
 
 const swaggerFile = readFileSync(join(__dirname, 'config', 'swagger.yaml'), 'utf-8');
 const swaggerDocument = YAML.parse(swaggerFile);
@@ -49,8 +71,9 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.use('/auth', authRouter);
+app.use('/auth', authLimiter, authRouter);
 app.use('/drivers', upload.single('file'), driverRouter);
+app.use('/public-repo', publicRepoRouter);
 app.use('/users', userRouter);
 
 app.use((err: Error | HttpError, _req: Request, res: Response, _next: NextFunction) => {
@@ -87,6 +110,32 @@ app.use((err: Error | HttpError, _req: Request, res: Response, _next: NextFuncti
 
 const PORT = Number(process.env.PORT) || 8000;
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Core-API running on port ${PORT}`);
+});
+
+function gracefulShutdown(signal: string) {
+  console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
+  
+  server.close(() => {
+    console.log('HTTP server closed.');
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });

@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import axiosRetry from 'axios-retry';
+import Cookies from 'js-cookie';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const PUBLIC_REPO_URL = process.env.NEXT_PUBLIC_PUBLIC_REPO_URL || 'http://localhost:3000';
@@ -18,13 +19,13 @@ axiosRetry(api, {
   retries: 3,
   retryDelay: (retryCount) => 1000 * Math.pow(2, retryCount),
   retryCondition: (error: AxiosError) => {
-    return error.response === undefined || (error.response.status! >= 500 && error.response.status! < 600);
+    return error.response === undefined || (error.response.status >= 500 && error.response.status < 600);
   },
 });
 
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
-    const token = document.cookie.match(/accessToken=([^;]+)/)?.[1];
+    const token = Cookies.get('accessToken');
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -32,14 +33,72 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (value?: any) => void;
+  reject: (reason?: any) => void;
+  config: AxiosRequestConfig;
+}> = [];
+
+const processQueue = (error: AxiosError | null, token: string | null = null) => {
+  failedQueue.forEach(({ resolve, reject, config }) => {
+    if (error) {
+      reject(error);
+    } else if (token) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${token}`;
+      resolve(api.request(config));
+    }
+  });
+  failedQueue = [];
+};
+
 api.interceptors.response.use(
   (response) => response,
-  (error: AxiosError) => {
-    if (error.response?.status === 401) {
-      if (typeof window !== 'undefined') {
-        window.location.href = '/login';
+  async (error: AxiosError) => {
+    const originalRequest = error.config as AxiosRequestConfig & { _retry?: boolean };
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject, config: originalRequest });
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const refreshToken = Cookies.get('refreshToken');
+        if (!refreshToken) {
+          throw new Error('No refresh token');
+        }
+
+        const response = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
+        const { accessToken, refreshToken: newRefreshToken } = response.data.data;
+
+        Cookies.set('accessToken', accessToken, { expires: 1 });
+        Cookies.set('refreshToken', newRefreshToken, { expires: 7 });
+
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+
+        processQueue(null, accessToken);
+        return api.request(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError as AxiosError, null);
+        Cookies.remove('accessToken');
+        Cookies.remove('refreshToken');
+        Cookies.remove('user');
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
       }
     }
+
     return Promise.reject(error);
   }
 );

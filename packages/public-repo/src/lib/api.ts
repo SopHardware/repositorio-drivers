@@ -1,14 +1,16 @@
 import axios, { AxiosError } from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY || '';
 
 const DEFAULT_TIMEOUT = 10000;
 
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: `${API_URL}/public-repo`,
   timeout: DEFAULT_TIMEOUT,
   headers: {
     'Content-Type': 'application/json',
+    'x-api-key': API_KEY,
   },
 });
 
@@ -111,5 +113,5 @@ export async function getDriver(id: number): Promise<HardwareDriver> {
 }
 
 export function getDriverDownloadUrl(id: number): string {
-  return `${API_URL}/drivers/${id}/download`;
+  return `${API_URL}/public-repo/drivers/${id}/download`;
 }
