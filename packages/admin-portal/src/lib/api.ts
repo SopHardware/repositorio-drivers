@@ -141,7 +141,12 @@ export async function getDrivers(params: { search?: string; hardwareType?: strin
 
   try {
     const response = await api.get(`/drivers${searchParams.toString() ? `?${searchParams}` : ''}`);
-    return response.data;
+    const result = response.data;
+    return {
+      drivers: result.data || [],
+      nextCursor: result.pagination?.nextCursor || null,
+      hasMore: result.pagination?.hasMore || false,
+    };
   } catch (error) {
     throw handleError(error);
   }
