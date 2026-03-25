@@ -14,6 +14,7 @@ import { driverRouter } from './routes/drivers.js';
 import { publicRepoRouter } from './routes/publicRepo.js';
 import { userRouter } from './routes/users.js';
 import { HttpError } from './utils/errors.js';
+import { logError, logInfo } from './utils/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -71,7 +72,8 @@ app.use('/public-repo', publicRepoRouter);
 app.use('/users', userRouter);
 
 app.use((err: Error | HttpError, _req: Request, res: Response, _next: NextFunction) => {
-  console.error(err);
+  const context = err instanceof HttpError ? `HTTP ${err.statusCode}` : 'Express';
+  logError(err, context);
 
   if (err instanceof HttpError) {
     return res.status(err.statusCode).json({
@@ -126,10 +128,12 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 process.on('uncaughtException', (error) => {
+  logError(error, 'UncaughtException');
   console.error('Uncaught Exception:', error);
   process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
+  logError(reason as Error, 'UnhandledRejection');
   console.error('Unhandled Rejection at:', promise, 'reason:', reason);
 });
