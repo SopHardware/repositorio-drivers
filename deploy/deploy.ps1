@@ -13,6 +13,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Refrescar variables de entorno (PATH)
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
 # ============================================================
 # Configuración
 # ============================================================
@@ -95,7 +98,8 @@ function Test-NodeInstalled {
 
 function Test-PnpmInstalled {
     try {
-        $version = pnpm --version
+        $null = Get-Command pnpm -ErrorAction Stop
+        $version = (pnpm --version).Trim()
         Write-Success "pnpm instalado: $version"
         return $true
     } catch {
