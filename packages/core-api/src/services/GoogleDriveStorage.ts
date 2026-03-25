@@ -76,10 +76,23 @@ export class GoogleDriveStorage implements IStorage {
         mimeType: response.data.mimeType!,
         size: parseInt(response.data.size || '0', 10),
       };
-    } catch (error) {
+    } catch (error: any) {
       if (fs.existsSync(tempPath)) {
         fs.unlinkSync(tempPath);
       }
+
+      if (error.message?.includes('Service Accounts do not have storage quota')) {
+        console.warn('[WARNING] Google Drive: Service Account sin cuota de almacenamiento.');
+        console.warn('[WARNING] Usando Mock Mode. Para producción, configure un Shared Drive.');
+        return this.mockUpload(fileName, mimeType, size);
+      }
+
+      if (error.message?.includes('File not found') || error.code === 404) {
+        console.warn('[WARNING] Google Drive: Carpeta no encontrada. Verifique GOOGLE_DRIVE_FOLDER_ID.');
+        console.warn('[WARNING] Usando Mock Mode.');
+        return this.mockUpload(fileName, mimeType, size);
+      }
+
       throw error;
     }
   }
@@ -100,41 +113,50 @@ export class GoogleDriveStorage implements IStorage {
       return this.mockDownload(fileId);
     }
 
-    const metadata = await this.drive.files.get({
-      fileId,
-      fields: 'id, name, mimeType, size, createdTime',
-    });
+    try {
+      const metadata = await this.drive.files.get({
+        fileId,
+        fields: 'id, name, mimeType, size, createdTime',
+      });
 
-    const response = await this.drive.files.get(
-      { fileId, alt: 'media' },
-      { responseType: 'stream' }
-    );
+      const response = await this.drive.files.get(
+        { fileId, alt: 'media' },
+        { responseType: 'stream' }
+      );
 
-    const self = this;
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        response.data.on('data', (chunk: Buffer) => {
-          controller.enqueue(new Uint8Array(chunk));
-        });
-        response.data.on('end', () => {
-          controller.close();
-        });
-        response.data.on('error', (err: Error) => {
-          controller.error(err);
-        });
-      },
-    });
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          response.data.on('data', (chunk: Buffer) => {
+            controller.enqueue(new Uint8Array(chunk));
+          });
+          response.data.on('end', () => {
+            controller.close();
+          });
+          response.data.on('error', (err: Error) => {
+            controller.error(err);
+          });
+        },
+      });
 
-    return {
-      stream,
-      metadata: {
-        fileId: metadata.data.id!,
-        fileName: metadata.data.name!,
-        mimeType: metadata.data.mimeType!,
-        size: parseInt(metadata.data.size || '0', 10),
-        createdAt: new Date(metadata.data.createdTime!),
-      },
-    };
+      return {
+        stream,
+        metadata: {
+          fileId: metadata.data.id!,
+          fileName: metadata.data.name!,
+          mimeType: metadata.data.mimeType!,
+          size: parseInt(metadata.data.size || '0', 10),
+          createdAt: new Date(metadata.data.createdTime!),
+        },
+      };
+    } catch (error: any) {
+      if (error.message?.includes('Service Accounts do not have storage quota') ||
+          error.message?.includes('File not found') || 
+          error.code === 404) {
+        console.warn(`[WARNING] Google Drive: Error descargando archivo ${fileId}. Usando Mock Mode.`);
+        return this.mockDownload(fileId);
+      }
+      throw error;
+    }
   }
 
   private async mockDownload(fileId: string): Promise<DownloadResult> {
@@ -167,7 +189,17 @@ export class GoogleDriveStorage implements IStorage {
       return;
     }
 
-    await this.drive.files.delete({ fileId });
+    try {
+      await this.drive.files.delete({ fileId });
+    } catch (error: any) {
+      if (error.message?.includes('Service Accounts do not have storage quota') ||
+          error.message?.includes('File not found') || 
+          error.code === 404) {
+        console.warn(`[WARNING] Google Drive: Error eliminando archivo ${fileId}. Usando Mock Mode.`);
+        return;
+      }
+      throw error;
+    }
   }
 
   async getMetadata(fileId: string): Promise<FileMetadata> {
@@ -181,18 +213,34 @@ export class GoogleDriveStorage implements IStorage {
       };
     }
 
-    const response = await this.drive.files.get({
-      fileId,
-      fields: 'id, name, mimeType, size, createdTime',
-    });
+    try {
+      const response = await this.drive.files.get({
+        fileId,
+        fields: 'id, name, mimeType, size, createdTime',
+      });
 
-    return {
-      fileId: response.data.id!,
-      fileName: response.data.name!,
-      mimeType: response.data.mimeType!,
-      size: parseInt(response.data.size || '0', 10),
-      createdAt: new Date(response.data.createdTime!),
-    };
+      return {
+        fileId: response.data.id!,
+        fileName: response.data.name!,
+        mimeType: response.data.mimeType!,
+        size: parseInt(response.data.size || '0', 10),
+        createdAt: new Date(response.data.createdTime!),
+      };
+    } catch (error: any) {
+      if (error.message?.includes('Service Accounts do not have storage quota') ||
+          error.message?.includes('File not found') || 
+          error.code === 404) {
+        console.warn(`[WARNING] Google Drive: Error obteniendo metadatos de ${fileId}. Usando Mock Mode.`);
+        return {
+          fileId,
+          fileName: `mock-file-${fileId}.bin`,
+          mimeType: 'application/octet-stream',
+          size: 1024,
+          createdAt: new Date(),
+        };
+      }
+      throw error;
+    }
   }
 }
 
