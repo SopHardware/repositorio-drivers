@@ -1,7 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { driverRepository } from '../repositories/PrismaRepository.js';
 import { storage } from '../services/StorageFactory.js';
-import { apiKeyMiddleware, AuthenticatedRequest } from '../middleware/auth.js';
 import { NotFoundError } from '../utils/errors.js';
 
 interface CursorParams {
@@ -10,8 +9,6 @@ interface CursorParams {
 }
 
 export const publicRepoRouter = Router();
-
-publicRepoRouter.use(apiKeyMiddleware);
 
 publicRepoRouter.get('/drivers', async (req: Request, res: Response, next: NextFunction) => {
   try {
