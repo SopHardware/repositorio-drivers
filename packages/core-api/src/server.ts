@@ -20,12 +20,6 @@ const __dirname = dirname(__filename);
 
 const app: Express = express();
 
-const upload = multer({
-  limits: {
-    fileSize: 128 * 1024 * 1024,
-  },
-});
-
 app.use(cors({
   origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
   credentials: true,
@@ -72,7 +66,7 @@ app.get('/health', (_req: Request, res: Response) => {
 });
 
 app.use('/auth', authLimiter, authRouter);
-app.use('/drivers', upload.single('file'), driverRouter);
+app.use('/drivers', driverRouter);
 app.use('/public-repo', publicRepoRouter);
 app.use('/users', userRouter);
 

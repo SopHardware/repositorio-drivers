@@ -19,7 +19,7 @@ export interface DownloadResult {
 }
 
 export interface IStorage {
-  upload(fileName: string, mimeType: string, stream: ReadableStream<Uint8Array>, size: number): Promise<UploadResult>;
+  upload(fileName: string, mimeType: string, buffer: Buffer, size: number): Promise<UploadResult>;
   download(fileId: string): Promise<DownloadResult>;
   delete(fileId: string): Promise<void>;
   getMetadata(fileId: string): Promise<FileMetadata>;

@@ -2,6 +2,7 @@ import { google, drive_v3 } from 'googleapis';
 import { IStorage, UploadResult, DownloadResult, FileMetadata } from '../interfaces/IStorage.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 const FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
 
@@ -44,28 +45,14 @@ export class GoogleDriveStorage implements IStorage {
   async upload(
     fileName: string,
     mimeType: string,
-    stream: ReadableStream<Uint8Array>,
+    buffer: Buffer,
     size: number
   ): Promise<UploadResult> {
     if (!this.drive) {
       return this.mockUpload(fileName, mimeType, size);
     }
 
-    const chunks: Buffer[] = [];
-    const reader = stream.getReader();
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        chunks.push(Buffer.from(value));
-      }
-    } finally {
-      reader.releaseLock();
-    }
-
-    const buffer = Buffer.concat(chunks);
-    const tempPath = path.join('/tmp', fileName);
+    const tempPath = path.join(os.tmpdir(), fileName);
     fs.writeFileSync(tempPath, buffer);
 
     try {

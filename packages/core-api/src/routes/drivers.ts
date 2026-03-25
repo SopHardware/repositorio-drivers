@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import multer from 'multer';
 import { driverRepository } from '../repositories/PrismaRepository.js';
 import { storage } from '../services/StorageFactory.js';
 import {
@@ -19,6 +20,12 @@ interface CursorParams {
 
 const ALLOWED_EXTENSIONS = ['.exe', '.zip', '.rar', '.7z', '.msi', '.dmg', '.pkg', '.deb', '.rpm'];
 const MAX_FILE_SIZE = 128 * 1024 * 1024;
+
+const upload = multer({
+  limits: {
+    fileSize: MAX_FILE_SIZE,
+  },
+});
 
 function getMimeType(extension: string): string {
   const mimeTypes: Record<string, string> = {
@@ -41,18 +48,20 @@ driverRouter.use(authMiddleware);
 
 driverRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { cursor, limit, brand, model, hardwareType, search } = req.query as unknown as DriverQueryInput;
+    const { cursor, brand, model, hardwareType, search } = req.query as unknown as DriverQueryInput;
+    const limitParam = (req.query as any).limit;
+    const parsedLimit = parseInt(limitParam as string, 10) || 20;
 
     const drivers = await driverRepository.findAllWithCursor(
       { brand, model, hardwareType, search },
       {
-        limit: limit || 20,
+        limit: parsedLimit,
         cursor: cursor ? JSON.parse(cursor) as CursorParams : undefined,
       }
     );
 
     const nextCursor =
-      drivers.length === (limit || 20)
+      drivers.length === parsedLimit
         ? JSON.stringify({
             id: drivers[drivers.length - 1].id,
             createdAt: drivers[drivers.length - 1].createdAt,
@@ -153,6 +162,7 @@ driverRouter.delete(
 
 driverRouter.post(
   '/upload',
+  upload.single('file'),
   requireRole('ADMIN_SISTEMAS', 'SOPORTE_WP'),
   async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     try {
