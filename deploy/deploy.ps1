@@ -111,10 +111,18 @@ function Test-PnpmInstalled {
 function Test-NSSMInstalled {
     try {
         $null = Get-Command nssm -ErrorAction Stop
-        Write-Success "NSSM encontrado"
+        Write-Success "NSSM encontrado en PATH"
         return $true
     } catch {
-        Write-Warning "NSSM no encontrado en PATH. Descargar de https://nssm.cc/download"
+        # Buscar en el directorio actual
+        $localPath = Join-Path $PSScriptRoot "nssm.exe"
+        if (Test-Path $localPath) {
+            Write-Success "NSSM encontrado en directorio local: $localPath"
+            # Agregar al PATH de la sesión actual
+            $env:Path = $env:Path + ";" + $PSScriptRoot
+            return $true
+        }
+        Write-Warning "NSSM no encontrado. Descargar de https://nssm.cc/download y colocar en la carpeta deploy"
         return $false
     }
 }
@@ -272,15 +280,19 @@ if (-not (Test-Administrator)) {
 # Verificar prerrequisitos
 Write-Header "Verificando prerrequisitos"
 
-$prerequisites = @(
-    (Test-NodeInstalled),
-    (Test-PnpmInstalled),
-    (Test-NSSMInstalled)
-)
+$nodeInstalled = Test-NodeInstalled
+$pnpmInstalled = Test-PnpmInstalled
+$nssmInstalled = Test-NSSMInstalled
 
-if ($prerequisites -contains $false) {
-    Write-Error "Prerrequisitos no cumplidos. Por favor instalar dependencias faltantes."
+# Solo Node.js y pnpm son obligatorios
+if (-not $nodeInstalled -or -not $pnpmInstalled) {
+    Write-Error "Prerrequisitos obligatorios no cumplidos. Por favor instalar Node.js y pnpm."
     exit 1
+}
+
+if (-not $nssmInstalled) {
+    Write-Warning "NSSM no encontrado. Los servicios de Windows no se instalarán automáticamente."
+    Write-Host "Puede descargar NSSM de: https://nssm.cc/download"
 }
 
 # Compilar aplicaciones
@@ -297,29 +309,42 @@ foreach ($service in $Services) {
     Deploy-Application -Name $service.Name -SourceDir $service.SourceDir -DeployDir $service.DeployDir
 }
 
-# Instalar servicios NSSM
-Write-Header "Instalando servicios Windows"
+# Instalar servicios NSSM (solo si NSSM está disponible)
+if ($nssmInstalled) {
+    Write-Header "Instalando servicios Windows"
 
-foreach ($service in $Services) {
-    $nodePath = (Get-Command node).Source
-    Install-NSSMService -Name $service.Name -DisplayName $service.DisplayName -DeployDir $service.DeployDir -Arguments $service.Arguments
-}
+    foreach ($service in $Services) {
+        $nodePath = (Get-Command node).Source
+        Install-NSSMService -Name $service.Name -DisplayName $service.DisplayName -DeployDir $service.DeployDir -Arguments $service.Arguments
+    }
 
-# Iniciar servicios
-Write-Header "Iniciando servicios"
+    # Iniciar servicios
+    Write-Header "Iniciando servicios"
 
-foreach ($service in $Services) {
-    Start-NSSMService -Name $service.Name
-}
+    foreach ($service in $Services) {
+        Start-NSSMService -Name $service.Name
+    }
 
-# Verificar estado
-Write-Header "Verificando estado de servicios"
+    # Verificar estado
+    Write-Header "Verificando estado de servicios"
 
-foreach ($service in $Services) {
-    $status = nssm status $service.Name 2>$null
-    $port = $service.NodePort
-    
-    Write-Host "$($service.Name): $status (Puerto $port)" -ForegroundColor $(if ($status -eq "SERVICE_RUNNING") { "Green" } else { "Yellow" })
+    foreach ($service in $Services) {
+        $status = nssm status $service.Name 2>$null
+        $port = $service.NodePort
+        
+        Write-Host "$($service.Name): $status (Puerto $port)" -ForegroundColor $(if ($status -eq "SERVICE_RUNNING") { "Green" } else { "Yellow" })
+    }
+} else {
+    Write-Header "Servicios Windows no instalados"
+    Write-Warning "Para instalar los servicios manualmente:"
+    Write-Host "  1. Descargar NSSM de https://nssm.cc/download"
+    Write-Host "  2. Colocar nssm.exe en la carpeta deploy"
+    Write-Host "  3. Volver a ejecutar este script"
+    Write-Host ""
+    Write-Host "O ejecutar las aplicaciones manualmente:"
+    foreach ($service in $Services) {
+        Write-Host "  - $($service.Name): cd $($service.DeployDir) && node $($service.Arguments)"
+    }
 }
 
 # Resumen
