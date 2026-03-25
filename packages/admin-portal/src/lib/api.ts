@@ -192,7 +192,11 @@ export async function uploadDriverFile(file: File) {
   formData.append('file', file);
 
   try {
-    const response = await api.post('/drivers/upload', formData);
+    const response = await api.post('/drivers/upload', formData, {
+      headers: {
+        'Content-Type': undefined,
+      },
+    });
     return response.data;
   } catch (error) {
     throw handleError(error);
