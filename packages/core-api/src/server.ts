@@ -22,7 +22,14 @@ const __dirname = dirname(__filename);
 const app: Express = express();
 
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:3002',
+    'http://localhost:5001',
+    'http://localhost:5002',
+    'http://localhost:5003',
+  ],
   credentials: true,
 }));
 
