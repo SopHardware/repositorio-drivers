@@ -132,7 +132,7 @@ function Build-Application {
         }
         Write-Success "$Name compilado correctamente"
     } catch {
-        Write-Error "Error compilando $Name: $_"
+        Write-Error "Error compilando ${Name} - $_"
         throw
     } finally {
         Pop-Location
@@ -248,7 +248,7 @@ function Start-NSSMService {
             Write-Warning "Servicio $Name estado: $status"
         }
     } catch {
-        Write-Error "Error iniciando servicio $Name: $_"
+        Write-Error "Error iniciando servicio ${Name} - $_"
     }
 }
 
