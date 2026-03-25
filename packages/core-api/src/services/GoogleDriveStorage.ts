@@ -4,6 +4,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+console.log('[GoogleDrive] Module loading...');
+console.log(`[GoogleDrive] GOOGLE_DRIVE_FOLDER_ID: ${process.env.GOOGLE_DRIVE_FOLDER_ID || 'NOT SET'}`);
+console.log(`[GoogleDrive] GOOGLE_DRIVE_CREDENTIALS_PATH: ${process.env.GOOGLE_DRIVE_CREDENTIALS_PATH || 'NOT SET'}`);
+
 const FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
 
 export class GoogleDriveStorage implements IStorage {
@@ -30,8 +34,11 @@ export class GoogleDriveStorage implements IStorage {
         scopes: ['https://www.googleapis.com/auth/drive'],
       });
       this.drive = google.drive({ version: 'v3', auth });
+      console.log(`[GoogleDrive] Credentials loaded: ${credentials.client_email}`);
+      console.log(`[GoogleDrive] Folder ID: ${this.folderId || 'NOT SET'}`);
     } else {
       this.drive = null as any;
+      console.log('[GoogleDrive] No credentials - using Mock Mode');
     }
   }
 
@@ -49,8 +56,12 @@ export class GoogleDriveStorage implements IStorage {
     size: number
   ): Promise<UploadResult> {
     if (!this.drive) {
+      console.log('[GoogleDrive] No drive instance - using Mock Mode');
       return this.mockUpload(fileName, mimeType, size);
     }
+
+    console.log(`[GoogleDrive] Starting upload: ${fileName} (${size} bytes)`);
+    console.log(`[GoogleDrive] Folder ID: ${this.folderId}`);
 
     const tempPath = path.join(os.tmpdir(), fileName);
     fs.writeFileSync(tempPath, buffer);
@@ -66,10 +77,12 @@ export class GoogleDriveStorage implements IStorage {
           body: fs.createReadStream(tempPath),
         },
         fields: 'id, name, mimeType, size, createdTime',
+        supportsAllDrives: true,
       });
 
       fs.unlinkSync(tempPath);
 
+      console.log(`[GoogleDrive] Upload successful: ${response.data.id}`);
       return {
         fileId: response.data.id!,
         fileName: response.data.name!,
@@ -80,6 +93,11 @@ export class GoogleDriveStorage implements IStorage {
       if (fs.existsSync(tempPath)) {
         fs.unlinkSync(tempPath);
       }
+
+      console.error(`[GoogleDrive] Upload error: ${error.message}`);
+      console.error(`[GoogleDrive] Error code: ${error.code}`);
+      console.error(`[GoogleDrive] Error details:`, error.errors);
+      console.error(`[GoogleDrive] Folder ID used: ${this.folderId}`);
 
       if (error.message?.includes('Service Accounts do not have storage quota')) {
         console.warn('[WARNING] Google Drive: Service Account sin cuota de almacenamiento.');
@@ -117,10 +135,11 @@ export class GoogleDriveStorage implements IStorage {
       const metadata = await this.drive.files.get({
         fileId,
         fields: 'id, name, mimeType, size, createdTime',
+        supportsAllDrives: true,
       });
 
       const response = await this.drive.files.get(
-        { fileId, alt: 'media' },
+        { fileId, alt: 'media', supportsAllDrives: true },
         { responseType: 'stream' }
       );
 
@@ -190,7 +209,10 @@ export class GoogleDriveStorage implements IStorage {
     }
 
     try {
-      await this.drive.files.delete({ fileId });
+      await this.drive.files.delete({ 
+        fileId,
+        supportsAllDrives: true,
+      });
     } catch (error: any) {
       if (error.message?.includes('Service Accounts do not have storage quota') ||
           error.message?.includes('File not found') || 
@@ -217,6 +239,7 @@ export class GoogleDriveStorage implements IStorage {
       const response = await this.drive.files.get({
         fileId,
         fields: 'id, name, mimeType, size, createdTime',
+        supportsAllDrives: true,
       });
 
       return {
