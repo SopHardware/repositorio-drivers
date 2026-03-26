@@ -136,6 +136,13 @@ function Build-Application {
     
     Push-Location $SourceDir
     try {
+        # Para paquetes Next.js, reinstalar con --shamefully-hoist
+        if ($Name -ne "DriversAPI") {
+            Write-Host "  Reinstalando dependencias con shamefully-hoist..." -ForegroundColor Gray
+            Remove-Item -Recurse -Force "node_modules" -ErrorAction SilentlyContinue
+            pnpm install --shamefully-hoist | Out-Null
+        }
+        
         pnpm run build
         Write-Success "$Name compilado correctamente"
     } catch {
