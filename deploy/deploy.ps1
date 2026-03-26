@@ -1,5 +1,5 @@
 # ============================================================
-# Script de Despliegue - Drivers Boxito (IIS + NSSM)
+# Script de Despliegue - Drivers Boxito (NSSM)
 # ============================================================
 # Uso: .\deploy.ps1 -Environment QA|Production
 # Requiere: Ejecutar como Administrador
@@ -20,49 +20,48 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";"
 # Configuración
 # ============================================================
 
-$DeployRoot = "C:\inetpub\wwwroot"
+$DeployRoot  = "C:\inetpub\wwwroot"
+$WrapperRoot = "C:\ProgramData\DriversBoxito\wrappers"
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
-$NSSMPath = Join-Path $ProjectRoot "deploy\nssm.exe"
-$NodePath = (Get-Command node).Source
 
 $Services = @(
     @{
-        Name = "DriversAPI"
+        Name        = "DriversAPI"
         DisplayName = "Drivers Boxito - API"
-        Description = "API REST del sistema de drivers"
-        SourceDir = Join-Path $ProjectRoot "packages\core-api"
-        DeployDir = Join-Path $DeployRoot "drivers-api"
-        IISAppName = "drivers-api"
-        Port = 5001
-        Arguments = "dist\src\server.js"
-        EnvVars = @("NODE_ENV=production", "PORT=5001")
+        SourceDir   = Join-Path $ProjectRoot "packages\core-api"
+        DeployDir   = Join-Path $DeployRoot "drivers-api"
+        Port        = 5001
+        EnvFile     = ".env"
+        WrapperSrc  = Join-Path $ProjectRoot "deploy\wrappers\wrapper-drivers-api.ps1"
+        WrapperDst  = Join-Path $WrapperRoot "wrapper-drivers-api.ps1"
+        StopTimeout = 20000
     },
     @{
-        Name = "DriversAdmin"
+        Name        = "DriversAdmin"
         DisplayName = "Drivers Boxito - Admin Portal"
-        Description = "Panel de administración del sistema"
-        SourceDir = Join-Path $ProjectRoot "packages\admin-portal"
-        DeployDir = Join-Path $DeployRoot "drivers-admin"
-        IISAppName = "drivers-admin"
-        Port = 5002
-        Arguments = "node_modules\next\dist\bin\next start -p 5002"
-        EnvVars = @("NODE_ENV=production")
+        SourceDir   = Join-Path $ProjectRoot "packages\admin-portal"
+        DeployDir   = Join-Path $DeployRoot "drivers-admin"
+        Port        = 5002
+        EnvFile     = ".env.local"
+        WrapperSrc  = Join-Path $ProjectRoot "deploy\wrappers\wrapper-drivers-admin.ps1"
+        WrapperDst  = Join-Path $WrapperRoot "wrapper-drivers-admin.ps1"
+        StopTimeout = 30000
     },
     @{
-        Name = "DriversPublic"
+        Name        = "DriversPublic"
         DisplayName = "Drivers Boxito - Public Repo"
-        Description = "Repositorio público de drivers"
-        SourceDir = Join-Path $ProjectRoot "packages\public-repo"
-        DeployDir = Join-Path $DeployRoot "drivers-public"
-        IISAppName = "drivers-public"
-        Port = 5003
-        Arguments = "node_modules\next\dist\bin\next start -p 5003"
-        EnvVars = @("NODE_ENV=production")
+        SourceDir   = Join-Path $ProjectRoot "packages\public-repo"
+        DeployDir   = Join-Path $DeployRoot "drivers-public"
+        Port        = 5003
+        EnvFile     = ".env.local"
+        WrapperSrc  = Join-Path $ProjectRoot "deploy\wrappers\wrapper-drivers-public.ps1"
+        WrapperDst  = Join-Path $WrapperRoot "wrapper-drivers-public.ps1"
+        StopTimeout = 30000
     }
 )
 
 # ============================================================
-# Funciones
+# Funciones - Utilidades
 # ============================================================
 
 function Write-Header {
@@ -77,12 +76,12 @@ function Write-Success {
     Write-Host "[OK] $Message" -ForegroundColor Green
 }
 
-function Write-Warning {
+function Write-Warn {
     param([string]$Message)
     Write-Host "[WARN] $Message" -ForegroundColor Yellow
 }
 
-function Write-Error {
+function Write-Err {
     param([string]$Message)
     Write-Host "[ERROR] $Message" -ForegroundColor Red
 }
@@ -99,7 +98,7 @@ function Test-NodeInstalled {
         Write-Success "Node.js instalado: $version"
         return $true
     } catch {
-        Write-Error "Node.js no encontrado. Por favor instalar Node.js 18+"
+        Write-Err "Node.js no encontrado. Por favor instalar Node.js 18+"
         return $false
     }
 }
@@ -111,57 +110,242 @@ function Test-PnpmInstalled {
         Write-Success "pnpm instalado: $version"
         return $true
     } catch {
-        Write-Error "pnpm no encontrado. Por favor instalar: npm install -g pnpm"
+        Write-Err "pnpm no encontrado. Por favor instalar: npm install -g pnpm"
         return $false
     }
 }
 
-function Test-NSSMInstalled {
-    if (Test-Path $NSSMPath) {
-        Write-Success "NSSM encontrado en: $NSSMPath"
-        return $true
-    } else {
-        Write-Error "NSSM no encontrado en: $NSSMPath"
-        return $false
+# ============================================================
+# Funciones - NSSM
+# ============================================================
+
+function Invoke-NSSM {
+    param([string[]]$Arguments)
+    $output = & nssm $Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        throw "NSSM fallo (exit $LASTEXITCODE): nssm $($Arguments -join ' ')`n$output"
     }
+    return $output
 }
 
-function Test-IISInstalled {
+function Install-NSSM {
+    # Intentar desde directorio tools del proyecto primero (sin internet)
+    $localNssm = Join-Path $ProjectRoot "deploy\tools\nssm.exe"
+    if (Test-Path $localNssm) {
+        Copy-Item $localNssm "C:\Windows\System32\nssm.exe" -Force
+        Write-Success "NSSM instalado desde deploy\tools\"
+        return
+    }
+
+    # Descargar desde nssm.cc
+    $nssmVersion = "2.24"
+    $nssmZip     = "$env:TEMP\nssm-$nssmVersion.zip"
+    $nssmExtract = "$env:TEMP\nssm-$nssmVersion"
+    $nssmDest    = "C:\Windows\System32\nssm.exe"
+
+    Write-Host "  Descargando NSSM $nssmVersion..." -ForegroundColor Gray
     try {
-        Import-Module WebAdministration -ErrorAction Stop
-        Write-Success "IIS módulo WebAdministration cargado"
-        return $true
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-$nssmVersion.zip" `
+            -OutFile $nssmZip -UseBasicParsing
+        Expand-Archive -Path $nssmZip -DestinationPath $nssmExtract -Force
+
+        $arch = if ([Environment]::Is64BitOperatingSystem) { "win64" } else { "win32" }
+        $binary = Join-Path $nssmExtract "nssm-$nssmVersion\$arch\nssm.exe"
+        Copy-Item $binary $nssmDest -Force
+
+        Write-Success "NSSM $nssmVersion instalado en $nssmDest"
     } catch {
-        Write-Warning "No se pudo cargar WebAdministration. Continuando..."
-        return $true
+        throw "No se pudo instalar NSSM: $_`nInstalar manualmente desde https://nssm.cc/download y colocar nssm.exe en deploy\tools\"
+    } finally {
+        Remove-Item $nssmZip    -ErrorAction SilentlyContinue
+        Remove-Item $nssmExtract -Recurse -ErrorAction SilentlyContinue
     }
 }
+
+function Test-NSSMAvailable {
+    $nssm = Get-Command nssm -ErrorAction SilentlyContinue
+    if ($nssm) {
+        Write-Success "NSSM encontrado: $($nssm.Source)"
+        return
+    }
+    Write-Warn "NSSM no encontrado. Instalando automaticamente..."
+    Install-NSSM
+    # Refrescar PATH tras instalacion
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + $env:Path
+    if (-not (Get-Command nssm -ErrorAction SilentlyContinue)) {
+        throw "NSSM no disponible despues de la instalacion."
+    }
+}
+
+function Register-EventLogSources {
+    $sources = @("DriversAPI", "DriversAdmin", "DriversPublic")
+    foreach ($source in $sources) {
+        if (-not [System.Diagnostics.EventLog]::SourceExists($source)) {
+            try {
+                New-EventLog -LogName Application -Source $source
+                Write-Success "Fuente Event Log registrada: $source"
+            } catch {
+                Write-Warn "No se pudo registrar fuente '$source': $_"
+            }
+        } else {
+            Write-Host "  Fuente '$source' ya registrada" -ForegroundColor Gray
+        }
+    }
+}
+
+function Get-EnvVarsForNSSM {
+    param([string]$EnvFilePath)
+    $vars = @()
+    if (-not (Test-Path $EnvFilePath)) { return $vars }
+    Get-Content $EnvFilePath | Where-Object {
+        $_ -notmatch '^\s*#' -and $_ -match '='
+    } | ForEach-Object {
+        $vars += $_.Trim()
+    }
+    return $vars
+}
+
+function Stop-NSSMService {
+    param([string]$Name)
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc) { return }
+
+    Write-Host "  Deteniendo servicio $Name..." -ForegroundColor Gray
+    & nssm stop $Name 2>&1 | Out-Null
+
+    $deadline = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $deadline) {
+        $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+        if (-not $svc -or $svc.Status -eq 'Stopped') { break }
+        Start-Sleep -Seconds 1
+    }
+
+    # Forzar parada si sigue corriendo
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if ($svc -and $svc.Status -ne 'Stopped') {
+        & nssm stop $Name confirm 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+    }
+    Write-Host "  Servicio $Name detenido" -ForegroundColor Gray
+}
+
+function Remove-NSSMService {
+    param([string]$Name)
+    $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+    if (-not $svc) { return }
+    & nssm remove $Name confirm 2>&1 | Out-Null
+    Write-Host "  Servicio $Name eliminado" -ForegroundColor Gray
+}
+
+function Install-NSSMService {
+    param([hashtable]$Service)
+
+    $psExe      = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $psArgs     = "-ExecutionPolicy Bypass -NonInteractive -NoProfile -File `"$($Service.WrapperDst)`""
+    $envFile    = Join-Path $Service.DeployDir $Service.EnvFile
+
+    Invoke-NSSM @("install", $Service.Name, $psExe)
+    Invoke-NSSM @("set", $Service.Name, "AppParameters",    $psArgs)
+    Invoke-NSSM @("set", $Service.Name, "AppDirectory",     $Service.DeployDir)
+    Invoke-NSSM @("set", $Service.Name, "DisplayName",      $Service.DisplayName)
+    Invoke-NSSM @("set", $Service.Name, "Description",      "Drivers Boxito - $($Service.Name) en puerto $($Service.Port)")
+    Invoke-NSSM @("set", $Service.Name, "Start",            "SERVICE_AUTO_START")
+    Invoke-NSSM @("set", $Service.Name, "AppExit",          "Default", "Restart")
+    Invoke-NSSM @("set", $Service.Name, "AppRestartDelay",  "5000")
+    Invoke-NSSM @("set", $Service.Name, "AppThrottle",      "30000")
+    Invoke-NSSM @("set", $Service.Name, "AppStopMethodTimeout", "$($Service.StopTimeout)")
+
+    # Variables de entorno desde .env desplegado
+    $envVars = Get-EnvVarsForNSSM $envFile
+    if ($envVars.Count -gt 0) {
+        Invoke-NSSM (@("set", $Service.Name, "AppEnvironmentExtra") + $envVars)
+    }
+
+    Write-Success "Servicio $($Service.Name) instalado en NSSM"
+}
+
+function Update-NSSMService {
+    param([hashtable]$Service)
+
+    $psExe      = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $psArgs     = "-ExecutionPolicy Bypass -NonInteractive -NoProfile -File `"$($Service.WrapperDst)`""
+    $envFile    = Join-Path $Service.DeployDir $Service.EnvFile
+
+    Invoke-NSSM @("set", $Service.Name, "Application",      $psExe)
+    Invoke-NSSM @("set", $Service.Name, "AppParameters",    $psArgs)
+    Invoke-NSSM @("set", $Service.Name, "AppDirectory",     $Service.DeployDir)
+    Invoke-NSSM @("set", $Service.Name, "AppStopMethodTimeout", "$($Service.StopTimeout)")
+
+    $envVars = Get-EnvVarsForNSSM $envFile
+    if ($envVars.Count -gt 0) {
+        Invoke-NSSM (@("set", $Service.Name, "AppEnvironmentExtra") + $envVars)
+    }
+
+    Write-Success "Servicio $($Service.Name) actualizado en NSSM"
+}
+
+function Wait-ServiceRunning {
+    param([string]$Name, [int]$TimeoutSeconds = 30)
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        $svc = Get-Service -Name $Name -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq 'Running') { return $true }
+        Start-Sleep -Seconds 2
+    }
+    return $false
+}
+
+function Test-ServiceHTTP {
+    param([string]$Name, [int]$Port, [int]$RetryCount = 6)
+    $path = if ($Name -eq "DriversAPI") { "/health" } else { "/" }
+    $url  = "http://localhost:$Port$path"
+
+    for ($i = 1; $i -le $RetryCount; $i++) {
+        try {
+            $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+            if ($response.StatusCode -lt 500) {
+                Write-Success "$Name responde en $url (HTTP $($response.StatusCode))"
+                return $true
+            }
+        } catch {
+            Write-Host "  Intento $i/$RetryCount - $Name no responde aun..." -ForegroundColor Gray
+            Start-Sleep -Seconds 5
+        }
+    }
+    Write-Warn "$Name no responde en $url despues de $RetryCount intentos. Verificar manualmente."
+    return $false
+}
+
+# ============================================================
+# Funciones - Build y Deploy
+# ============================================================
 
 function Build-Application {
     param(
         [string]$Name,
         [string]$SourceDir
     )
-    
+
     Write-Host "Compilando $Name..." -ForegroundColor Yellow
-    
+
     Push-Location $SourceDir
     try {
         # Para paquetes Next.js, reinstalar con --shamefully-hoist y limpiar caché
         if ($Name -ne "DriversAPI") {
-            Write-Host "  Limpiando node_modules y caché pnpm..." -ForegroundColor Gray
+            Write-Host "  Limpiando node_modules y cache pnpm..." -ForegroundColor Gray
             Remove-Item -Recurse -Force "node_modules" -ErrorAction SilentlyContinue
             Remove-Item -Force "pnpm-lock.yaml" -ErrorAction SilentlyContinue
             pnpm store prune | Out-Null
             Write-Host "  Reinstalando dependencias..." -ForegroundColor Gray
             pnpm install --shamefully-hoist
         }
-        
+
         Write-Host "  Ejecutando build..." -ForegroundColor Gray
         pnpm run build
         Write-Success "$Name compilado correctamente"
     } catch {
-        Write-Error "Error compilando ${Name} - $_"
+        Write-Err "Error compilando ${Name} - $_"
         throw
     } finally {
         Pop-Location
@@ -174,265 +358,154 @@ function Deploy-Application {
         [string]$SourceDir,
         [string]$DeployDir
     )
-    
+
     Write-Host "Desplegando $Name a $DeployDir..." -ForegroundColor Yellow
-    
-    # Crear directorio de despliegue
+
     if (-not (Test-Path $DeployDir)) {
         New-Item -ItemType Directory -Path $DeployDir -Force | Out-Null
     }
-    
-    # Crear directorio de logs
-    $logsDir = Join-Path $DeployDir "logs"
-    if (-not (Test-Path $logsDir)) {
-        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
-    }
-    
-    # Copiar archivos
+
     if ($Name -eq "DriversAPI") {
-        # Para Express.js, copiar dist, node_modules, package.json, .env, config
         $items = @("dist", "node_modules", "package.json", ".env", "src\config")
     } else {
-        # Para Next.js, copiar .next, node_modules, package.json, .env.local, public
         $items = @(".next", "node_modules", "package.json", ".env.local", "public")
     }
-    
+
     foreach ($item in $items) {
         $source = Join-Path $SourceDir $item
-        $dest = Join-Path $DeployDir $item
-        
+        $dest   = Join-Path $DeployDir $item
+
         if (Test-Path $source) {
             $destDir = Split-Path $dest -Parent
             if (-not (Test-Path $destDir)) {
                 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
             }
-            
+
             if (Test-Path $source -PathType Container) {
-                # Es un directorio, usar robocopy
                 robocopy $source $dest /MIR /NFL /NDL /NJH /NJS /nc /ns /np | Out-Null
             } else {
-                # Es un archivo
                 Copy-Item $source $dest -Force
             }
         }
     }
-    
-    # Copiar web.config de IIS
-    $webConfig = Join-Path $ProjectRoot "deploy\iis\$($Name.ToLower().Replace('drivers', ''))\web.config"
-    if (Test-Path $webConfig) {
-        Copy-Item $webConfig (Join-Path $DeployDir "web.config") -Force
-    }
-    
+
     Write-Success "$Name desplegado correctamente"
-}
-
-function Install-NSSMService {
-    param(
-        [string]$Name,
-        [string]$DisplayName,
-        [string]$Description,
-        [string]$DeployDir,
-        [string]$Arguments,
-        [string[]]$EnvVars
-    )
-    
-    Write-Host "Instalando servicio NSSM: $Name..." -ForegroundColor Yellow
-    
-    # Verificar si el servicio ya existe
-    $existingService = Get-Service -Name $Name -ErrorAction SilentlyContinue
-    
-    if ($existingService) {
-        Write-Warning "Servicio $Name ya existe. Deteniendo..."
-        & $NSSMPath stop $Name 2>$null
-        & $NSSMPath remove $Name confirm 2>$null
-        Start-Sleep -Seconds 2
-    }
-    
-    # Instalar servicio
-    & $NSSMPath install $Name $NodePath $Arguments
-    & $NSSMPath set $Name AppDirectory $DeployDir
-    & $NSSMPath set $Name DisplayName $DisplayName
-    & $NSSMPath set $Name Description $Description
-    & $NSSMPath set $Name Start SERVICE_AUTO_START
-    & $NSSMPath set $Name AppRotateFiles 1
-    & $NSSMPath set $Name AppRotateBytes 10485760
-    
-    # Configurar variables de entorno
-    foreach ($envVar in $EnvVars) {
-        & $NSSMPath set $Name AppEnvironmentExtra $envVar
-    }
-    
-    Write-Success "Servicio $Name instalado"
-}
-
-function Start-NSSMService {
-    param([string]$Name)
-    
-    Write-Host "Iniciando servicio $Name..." -ForegroundColor Yellow
-    
-    & $NSSMPath start $Name 2>$null
-    Start-Sleep -Seconds 3
-    
-    $status = & $NSSMPath status $Name 2>$null
-    if ($status -eq "SERVICE_RUNNING") {
-        Write-Success "Servicio $Name iniciado correctamente"
-    } else {
-        Write-Warning "Servicio $Name estado: $status"
-    }
-}
-
-function Create-IISSite {
-    param(
-        [string]$IISAppName,
-        [string]$DeployDir,
-        [int]$Port
-    )
-    
-    Write-Host "Configurando IIS Site: $IISAppName en puerto $Port..." -ForegroundColor Yellow
-    
-    try {
-        Import-Module WebAdministration -ErrorAction Stop
-        
-        # Verificar si el sitio ya existe
-        $existingSite = Get-Website -Name $IISAppName -ErrorAction SilentlyContinue
-        
-        if ($existingSite) {
-            Write-Warning "Sitio $IISAppName ya existe. Deteniendo..."
-            Stop-Website -Name $IISAppName -ErrorAction SilentlyContinue
-            Remove-Website -Name $IISAppName -ErrorAction SilentlyContinue
-        }
-        
-        # Crear Application Pool
-        $poolName = "$IISAppName-pool"
-        $existingPool = Get-IISAppPool -Name $poolName -ErrorAction SilentlyContinue
-        
-        if ($existingPool) {
-            Remove-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
-        }
-        
-        New-WebAppPool -Name $poolName
-        Set-ItemProperty "IIS:\AppPools\$poolName" -Name "managedRuntimeVersion" -Value ""
-        Set-ItemProperty "IIS:\AppPools\$poolName" -Name "startMode" -Value "AlwaysRunning"
-        
-        # Crear sitio web
-        New-Website -Name $IISAppName -PhysicalPath $DeployDir -Port $Port -ApplicationPool $poolName
-        
-        # Iniciar el sitio
-        Start-Website -Name $IISAppName
-        
-        Write-Success "Sitio IIS $IISAppName creado y configurado"
-        return $true
-    } catch {
-        Write-Error "Error configurando IIS Site ${IISAppName} - $_"
-        return $false
-    }
-}
-
-function Verify-ServiceStatus {
-    param([string]$Name, [int]$Port)
-    
-    $status = & $NSSMPath status $Name 2>$null
-    if ($status -eq "SERVICE_RUNNING") {
-        Write-Host "$Name: RUNNING (Puerto $Port)" -ForegroundColor Green
-    } else {
-        Write-Host "$Name: $status (Puerto $Port)" -ForegroundColor Yellow
-    }
 }
 
 # ============================================================
 # Script Principal
 # ============================================================
 
-Write-Header "Despliegue Drivers Boxito - $Environment (IIS + NSSM)"
+Write-Header "Despliegue Drivers Boxito - $Environment"
 
-# Verificar permisos de administrador
+# 1. Verificar permisos de administrador
 if (-not (Test-Administrator)) {
-    Write-Error "Este script requiere permisos de administrador"
+    Write-Err "Este script requiere permisos de administrador"
     Write-Host "Por favor ejecutar PowerShell como Administrador"
     exit 1
 }
 
-# Verificar prerrequisitos
+# 2. Verificar prerrequisitos
 Write-Header "Verificando prerrequisitos"
 
 $nodeInstalled = Test-NodeInstalled
 $pnpmInstalled = Test-PnpmInstalled
-$nssmInstalled = Test-NSSMInstalled
-$iisInstalled = Test-IISInstalled
 
-if (-not $nodeInstalled -or -not $pnpmInstalled -or -not $nssmInstalled) {
-    Write-Error "Prerrequisitos obligatorios no cumplidos."
+if (-not $nodeInstalled -or -not $pnpmInstalled) {
+    Write-Err "Prerrequisitos obligatorios no cumplidos. Por favor instalar Node.js y pnpm."
     exit 1
 }
 
-# Compilar aplicaciones
+Test-NSSMAvailable
+
+# 3. Crear directorio de wrappers
+if (-not (Test-Path $WrapperRoot)) {
+    New-Item -ItemType Directory -Path $WrapperRoot -Force | Out-Null
+}
+
+# 4. Registrar fuentes en Event Log
+Write-Header "Registrando fuentes en Visor de Eventos"
+Register-EventLogSources
+
+# 5. Compilar aplicaciones
 Write-Header "Compilando aplicaciones"
 
 foreach ($service in $Services) {
     Build-Application -Name $service.Name -SourceDir $service.SourceDir
 }
 
-# Desplegar aplicaciones
-Write-Header "Desplegando aplicaciones"
+# 6. Para cada servicio: detener → desplegar → configurar → iniciar
+Write-Header "Desplegando y configurando servicios"
 
 foreach ($service in $Services) {
+    Write-Host "`n--- $($service.Name) ---" -ForegroundColor Cyan
+
+    $serviceExists = (Get-Service -Name $service.Name -ErrorAction SilentlyContinue) -ne $null
+
+    # Detener ANTES de copiar archivos (evitar locks de Windows)
+    if ($serviceExists) {
+        Stop-NSSMService -Name $service.Name
+    }
+
+    # Copiar archivos compilados
     Deploy-Application -Name $service.Name -SourceDir $service.SourceDir -DeployDir $service.DeployDir
+
+    # Copiar wrapper al destino de producción
+    Copy-Item $service.WrapperSrc $service.WrapperDst -Force
+    Write-Host "  Wrapper copiado a $($service.WrapperDst)" -ForegroundColor Gray
+
+    # Instalar o actualizar servicio NSSM
+    if ($serviceExists) {
+        Update-NSSMService -Service $service
+    } else {
+        Install-NSSMService -Service $service
+    }
+
+    # Iniciar servicio
+    Write-Host "  Iniciando $($service.Name)..." -ForegroundColor Gray
+    & nssm start $service.Name 2>&1 | Out-Null
+
+    # Verificar que el servicio Windows quedo Running
+    if (Wait-ServiceRunning -Name $service.Name -TimeoutSeconds 30) {
+        Write-Success "$($service.Name) esta Running"
+    } else {
+        Write-Warn "$($service.Name) no alcanzo estado Running en 30s. Revisar con: nssm status $($service.Name)"
+    }
 }
 
-# Instalar servicios NSSM
-Write-Header "Instalando servicios Windows (NSSM)"
+# 7. Verificar respuesta HTTP
+Write-Header "Verificando respuesta HTTP"
 
 foreach ($service in $Services) {
-    Install-NSSMService -Name $service.Name -DisplayName $service.DisplayName -Description $service.Description -DeployDir $service.DeployDir -Arguments $service.Arguments -EnvVars $service.EnvVars
+    Test-ServiceHTTP -Name $service.Name -Port $service.Port
 }
 
-# Iniciar servicios
-Write-Header "Iniciando servicios"
-
-foreach ($service in $Services) {
-    Start-NSSMService -Name $service.Name
-}
-
-# Configurar IIS Sites
-Write-Header "Configurando IIS Sites (Reverse Proxy)"
-
-foreach ($service in $Services) {
-    Create-IISSite -IISAppName $service.IISAppName -DeployDir $service.DeployDir -Port $service.Port
-}
-
-# Reiniciar IIS
-Write-Header "Reiniciando IIS"
-
-try {
-    iisreset /restart | Out-Null
-    Write-Success "IIS reiniciado correctamente"
-} catch {
-    Write-Warning "No se pudo reiniciar IIS automáticamente. Reiniciar manualmente con: iisreset"
-}
-
-# Verificar estado
-Write-Header "Verificando estado de servicios"
-
-foreach ($service in $Services) {
-    Verify-ServiceStatus -Name $service.Name -Port $service.Port
-}
-
-# Resumen
+# 8. Resumen
 Write-Header "Despliegue completado"
 
+Write-Host "Estado de servicios:" -ForegroundColor Cyan
+foreach ($service in $Services) {
+    $svc    = Get-Service -Name $service.Name -ErrorAction SilentlyContinue
+    $status = if ($svc) { $svc.Status } else { "No encontrado" }
+    $color  = if ($status -eq "Running") { "Green" } else { "Red" }
+    Write-Host "  $($service.Name): $status (Puerto $($service.Port))" -ForegroundColor $color
+}
+
+Write-Host ""
 Write-Host "URLs de acceso:" -ForegroundColor Cyan
 Write-Host "  - API:          http://localhost:5001" -ForegroundColor White
 Write-Host "  - Admin Portal: http://localhost:5002" -ForegroundColor White
 Write-Host "  - Public Repo:  http://localhost:5003" -ForegroundColor White
 Write-Host ""
-Write-Host "Documentación API: http://localhost:5001/docs" -ForegroundColor White
-Write-Host "Health Check:      http://localhost:5001/health" -ForegroundColor White
+Write-Host "Documentacion API:  http://localhost:5001/docs" -ForegroundColor White
+Write-Host "Health Check:       http://localhost:5001/health" -ForegroundColor White
 Write-Host ""
-Write-Host "Comandos NSSM útiles:" -ForegroundColor Cyan
-Write-Host "  - Ver estado: nssm status DriversAPI" -ForegroundColor White
-Write-Host "  - Reiniciar: nssm restart DriversAPI" -ForegroundColor White
-Write-Host "  - Detener:   nssm stop DriversAPI" -ForegroundColor White
-Write-Host "  - Ver logs:  nssm get DriversAPI AppStdout" -ForegroundColor White
+Write-Host "Gestion de servicios:" -ForegroundColor Cyan
+Write-Host "  nssm status  DriversAPI|DriversAdmin|DriversPublic" -ForegroundColor White
+Write-Host "  nssm stop    DriversAPI" -ForegroundColor White
+Write-Host "  nssm start   DriversAPI" -ForegroundColor White
+Write-Host "  nssm restart DriversAPI" -ForegroundColor White
 Write-Host ""
-Write-Host "Verificar logs en Event Viewer:" -ForegroundColor Cyan
-Write-Host "  - Event Viewer -> Windows Logs -> Application" -ForegroundColor White
+Write-Host "Visor de Eventos:" -ForegroundColor Cyan
+Write-Host "  eventvwr.msc -> Registros de Windows -> Aplicacion" -ForegroundColor White
+Write-Host "  Filtrar por origen: DriversAPI | DriversAdmin | DriversPublic" -ForegroundColor White

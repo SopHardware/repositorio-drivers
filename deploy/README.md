@@ -1,49 +1,41 @@
-# Despliegue Drivers Boxito - IIS
+# Despliegue Drivers Boxito - NSSM
 
 ## Requisitos Previos
 
-### Software Necesario
-
-| Software | Versión | Descarga |
-|----------|---------|----------|
-| Windows Server | 2016+ o Windows 10/11 | - |
-| IIS | Con rol Web Server | Windows Features |
-| httpPlatformHandler | Última | https://www.iis.net/downloads/microsoft/httpplatformhandler |
+| Software | Versión | Notas |
+|----------|---------|-------|
+| Windows Server | 2016+ o Windows 10/11 | — |
 | Node.js | 18+ | https://nodejs.org |
 | pnpm | Última | `npm install -g pnpm` |
+| NSSM | 2.24 | Auto-instalado por el script; o colocar `nssm.exe` en `deploy\tools\` |
+| IIS + URL Rewrite + ARR | Opcional | Solo si se usa IIS como reverse proxy |
 
-### Instalar httpPlatformHandler
-
-1. Descargar de https://www.iis.net/downloads/microsoft/httpplatformhandler
-2. Ejecutar el instalador
-3. Reiniciar IIS: `iisreset`
-
-### Habilitar IIS
-
-1. Panel de Control -> Programas -> Activar o desactivar características de Windows
-2. Marcar "Internet Information Services"
-3. Aceptar y esperar la instalación
+> **NSSM** (Non-Sucking Service Manager) gestiona los tres servicios Node.js como Windows Services. No se requiere httpPlatformHandler.
 
 ## Estructura de Archivos
 
 ```
 deploy/
-├── deploy.ps1                    # Script principal de despliegue
+├── deploy.ps1                         # Script principal de despliegue
+├── wrappers/
+│   ├── wrapper-drivers-api.ps1        # Wrapper NSSM para core-api
+│   ├── wrapper-drivers-admin.ps1      # Wrapper NSSM para admin-portal
+│   └── wrapper-drivers-public.ps1     # Wrapper NSSM para public-repo
 ├── iis/
-│   ├── core-api/web.config       # Configuración IIS para API
-│   ├── admin-portal/web.config   # Configuración IIS para Admin
-│   └── public-repo/web.config    # Configuración IIS para Public
+│   ├── core-api/web.config            # Reverse proxy IIS → puerto 5001 (opcional)
+│   ├── admin-portal/web.config        # Reverse proxy IIS → puerto 5002 (opcional)
+│   └── public-repo/web.config         # Reverse proxy IIS → puerto 5003 (opcional)
 └── env-examples/
-    ├── core-api.env.example      # Variables de entorno API
-    ├── admin-portal.env.example  # Variables de entorno Admin
-    └── public-repo.env.example   # Variables de entorno Public
+    ├── core-api.env.example
+    ├── admin-portal.env.example
+    └── public-repo.env.example
 ```
+
+Los wrappers se copian automáticamente a `C:\ProgramData\DriversBoxito\wrappers\` durante el deploy.
 
 ## Instrucciones de Despliegue
 
 ### 1. Preparar Variables de Entorno
-
-Copiar los archivos .env.example a .env y configurar:
 
 ```powershell
 # Core API
@@ -62,27 +54,28 @@ Copy-Item deploy\env-examples\public-repo.env.example packages\public-repo\.env.
 ### 2. Ejecutar Script de Despliegue
 
 ```powershell
-# Ejecutar como Administrador
+# Ejecutar PowerShell como Administrador
 .\deploy\deploy.ps1 -Environment QA
 ```
 
-El script realizará las siguientes acciones:
-1. Verificar prerrequisitos (Node.js, pnpm, IIS)
-2. Compilar las 3 aplicaciones
-3. Desplegar archivos a `C:\inetpub\wwwroot\`
-4. Crear sitios en IIS con httpPlatformHandler
-5. Reiniciar IIS
+El script realiza:
+1. Verificar prerrequisitos (Node.js, pnpm, NSSM)
+2. Instalar NSSM automáticamente si no está disponible
+3. Registrar fuentes en el Visor de Eventos (DriversAPI, DriversAdmin, DriversPublic)
+4. Compilar las 3 aplicaciones
+5. Para cada servicio: detener → desplegar archivos → instalar/actualizar NSSM → iniciar
+6. Verificar estado HTTP
 
-### 3. Verificar Sitios IIS
+### 3. Verificar Servicios
 
 ```powershell
-# Verificar sitios creados
-Get-Website | Where-Object {$_.Name -like "drivers*"}
+# Estado de los tres servicios
+Get-Service DriversAPI, DriversAdmin, DriversPublic
 
 # Probar endpoints
-curl http://localhost:5001/health
-curl http://localhost:5002
-curl http://localhost:5003
+Invoke-WebRequest http://localhost:5001/health -UseBasicParsing
+Invoke-WebRequest http://localhost:5002 -UseBasicParsing
+Invoke-WebRequest http://localhost:5003 -UseBasicParsing
 ```
 
 ## URLs de Acceso
@@ -95,61 +88,88 @@ curl http://localhost:5003
 | Swagger UI | http://localhost:5001/docs |
 | Health Check | http://localhost:5001/health |
 
-## Gestión de Sitios IIS
-
-### Desde IIS Manager
-
-1. Abrir IIS Manager
-2. Expandir el servidor
-3. Click en "Sites"
-4. Ver los sitios: `drivers-api`, `drivers-admin`, `drivers-public`
-
-### Desde PowerShell
+## Gestión de Servicios NSSM
 
 ```powershell
-# Ver sitios
-Get-Website -Name "drivers*"
+# Estado de todos los servicios
+Get-Service DriversAPI, DriversAdmin, DriversPublic
 
-# Iniciar sitio
-Start-Website -Name "drivers-api"
+# Iniciar / detener / reiniciar un servicio
+nssm start   DriversAPI
+nssm stop    DriversAPI
+nssm restart DriversAPI
 
-# Detener sitio
-Stop-Website -Name "drivers-api"
+# Ver configuración completa de un servicio
+nssm dump DriversAPI
 
-# Reiniciar IIS completo
-iisreset /restart
+# Editar configuración con GUI
+nssm edit DriversAPI
 ```
+
+## Visor de Eventos
+
+Todos los mensajes del servicio se registran bajo el nombre de la aplicación como fuente — no aparece "nssm".
+
+```
+eventvwr.msc
+  └── Registros de Windows
+        └── Aplicacion
+              └── Filtrar origen: DriversAPI | DriversAdmin | DriversPublic
+```
+
+| EventId | Tipo | Descripción |
+|---------|------|-------------|
+| 1000 | Information | Línea de stdout de Node.js |
+| 1001 | Information | Servicio iniciando |
+| 1002 | Information | Proceso Node.js arrancó (incluye PID) |
+| 1003 | Information/Warning | Proceso terminó (incluye exit code) |
+| 2000 | Error | Línea de stderr de Node.js |
+| 9001 | Error | No se encontró node.exe |
+| 9999 | Error | Error fatal en el wrapper |
 
 ## Troubleshooting
 
-### El sitio no inicia
+### El servicio no inicia
 
-1. Verificar logs en `C:\inetpub\wwwroot\drivers-api\logs\`
-2. Verificar que el .env está configurado correctamente
-3. Verificar que la base de datos está accesible
-4. Verificar que httpPlatformHandler está instalado
-5. Verificar en IIS Manager que el Application Pool está corriendo
+```powershell
+# Ver estado y último error
+nssm status DriversAPI
 
-### Error 500 - Internal Server Error
+# Ver logs del Visor de Eventos
+Get-EventLog -LogName Application -Source DriversAPI -Newest 20
 
-1. Revisar logs de stdout en `.\logs\stdout`
-2. Verificar variables de entorno en el web.config
-3. Verificar permisos de la carpeta de despliegue
+# Verificar que node.exe es accesible
+(Get-Command node).Source
+```
+
+### Servicio en estado "Paused" o loop de reinicios
+
+```powershell
+# Ver conteo de reinicios
+nssm dump DriversAPI
+
+# Reiniciar manualmente
+nssm stop DriversAPI
+nssm start DriversAPI
+```
 
 ### CORS Error
 
 1. Verificar que los puertos 5002 y 5003 están en la lista de CORS en `server.ts`
-2. Verificar que el core-api fue recompilado después del cambio
+2. Recompilar y redesplegar core-api
 
 ### Google Drive Error
 
-1. Verificar que el archivo de credenciales existe en `src/config/secret/credentials.json`
-2. Verificar que el `GOOGLE_DRIVE_FOLDER_ID` es correcto
-3. Verificar que la Service Account tiene permisos en el Shared Drive
+1. Verificar que `src/config/secret/credentials.json` existe en el directorio desplegado
+2. Verificar `GOOGLE_DRIVE_FOLDER_ID` en el `.env`
+3. Verificar permisos de la Service Account en el Shared Drive
 
-### httpPlatformHandler no funciona
+### node.exe no encontrado en cuenta SYSTEM
 
-1. Verificar que httpPlatformHandler está instalado
-2. Verificar que el web.config tiene la configuración correcta
-3. Reiniciar IIS: `iisreset`
-4. Verificar que Node.js está en el PATH del sistema
+El wrapper resuelve la ruta de `node.exe` automáticamente. Si falla (EventId 9001):
+
+```powershell
+# Verificar que Node.js está en el PATH del sistema (no solo del usuario)
+[System.Environment]::GetEnvironmentVariable("Path", "Machine")
+# Si no aparece la ruta de Node.js, agregarla a las variables de sistema
+```
