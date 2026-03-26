@@ -1,10 +1,10 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, Router as RouterType } from 'express';
 import { body, validationResult } from 'express-validator';
 import { authService } from '../services/AuthService.js';
 import { LoginInput, RefreshTokenInput, LoginSchema, RefreshTokenSchema } from '../dto/index.js';
 import { BadRequestError } from '../utils/errors.js';
 
-export const authRouter = Router();
+export const authRouter: RouterType = Router();
 
 const validateLogin = [
   body('username').isLength({ min: 3, max: 50 }).withMessage('Username debe tener entre 3 y 50 caracteres'),

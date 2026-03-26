@@ -35,7 +35,7 @@ describe('GoogleDriveStorage', () => {
     vi.clearAllMocks();
     vi.stubEnv('GOOGLE_DRIVE_CREDENTIALS_PATH', './config/google-drive-credentials.json');
     vi.stubEnv('GOOGLE_DRIVE_FOLDER_ID', 'test-folder-id');
-    storage = new GoogleDriveStorage();
+    storage = GoogleDriveStorage.getInstance();
   });
 
   it('should return singleton instance', () => {
@@ -45,14 +45,9 @@ describe('GoogleDriveStorage', () => {
   });
 
   it('should upload file in mock mode when no credentials', async () => {
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array([1, 2, 3]));
-        controller.close();
-      },
-    });
+    const buffer = Buffer.from([1, 2, 3]);
 
-    const result = await storage.upload('test.exe', 'application/octet-stream', stream, 3);
+    const result = await storage.upload('test.exe', 'application/octet-stream', buffer, 3);
 
     expect(result.fileId).toBeDefined();
     expect(result.fileName).toBe('test.exe');

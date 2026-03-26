@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, Router as RouterType } from 'express';
 import { body, validationResult } from 'express-validator';
 import { userRepository } from '../repositories/PrismaRepository.js';
 import { passwordHasher } from '../services/PasswordHasher.js';
@@ -11,7 +11,7 @@ import {
 import { authMiddleware, requireRole, AuthenticatedRequest } from '../middleware/auth.js';
 import { NotFoundError, ConflictError, BadRequestError } from '../utils/errors.js';
 
-export const userRouter = Router();
+export const userRouter: RouterType = Router();
 
 userRouter.use(authMiddleware);
 

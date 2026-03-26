@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, Router as RouterType } from 'express';
 import { driverRepository } from '../repositories/PrismaRepository.js';
 import { storage } from '../services/StorageFactory.js';
 import { NotFoundError } from '../utils/errors.js';
@@ -8,7 +8,7 @@ interface CursorParams {
   createdAt: Date;
 }
 
-export const publicRepoRouter = Router();
+export const publicRepoRouter: RouterType = Router();
 
 publicRepoRouter.get('/drivers', async (req: Request, res: Response, next: NextFunction) => {
   try {

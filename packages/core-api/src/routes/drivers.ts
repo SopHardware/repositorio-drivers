@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, Router as RouterType } from 'express';
 import multer from 'multer';
 import { driverRepository } from '../repositories/PrismaRepository.js';
 import { storage } from '../services/StorageFactory.js';
@@ -42,7 +42,7 @@ function getMimeType(extension: string): string {
   return mimeTypes[extension] || 'application/octet-stream';
 }
 
-export const driverRouter = Router();
+export const driverRouter: RouterType = Router();
 
 driverRouter.use(authMiddleware);
 
