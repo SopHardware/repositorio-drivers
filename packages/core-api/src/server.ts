@@ -55,7 +55,7 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   next();
 });
 
-const swaggerFile = readFileSync(join(__dirname, 'config', 'swagger.yaml'), 'utf-8');
+const swaggerFile = readFileSync(join(process.cwd(), 'src', 'config', 'swagger.yaml'), 'utf-8');
 const swaggerDocument = YAML.parse(swaggerFile);
 
 app.get('/swagger.json', (_req: Request, res: Response) => {
