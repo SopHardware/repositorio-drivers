@@ -136,13 +136,17 @@ function Build-Application {
     
     Push-Location $SourceDir
     try {
-        # Para paquetes Next.js, reinstalar con --shamefully-hoist
+        # Para paquetes Next.js, reinstalar con --shamefully-hoist y limpiar caché
         if ($Name -ne "DriversAPI") {
-            Write-Host "  Reinstalando dependencias con shamefully-hoist..." -ForegroundColor Gray
+            Write-Host "  Limpiando node_modules y caché pnpm..." -ForegroundColor Gray
             Remove-Item -Recurse -Force "node_modules" -ErrorAction SilentlyContinue
-            pnpm install --shamefully-hoist | Out-Null
+            Remove-Item -Force "pnpm-lock.yaml" -ErrorAction SilentlyContinue
+            pnpm store prune | Out-Null
+            Write-Host "  Reinstalando dependencias..." -ForegroundColor Gray
+            pnpm install --shamefully-hoist
         }
         
+        Write-Host "  Ejecutando build..." -ForegroundColor Gray
         pnpm run build
         Write-Success "$Name compilado correctamente"
     } catch {
