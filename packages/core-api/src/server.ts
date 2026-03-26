@@ -111,10 +111,11 @@ app.use((err: Error | HttpError, _req: Request, res: Response, _next: NextFuncti
   });
 });
 
-const PORT = Number(process.env.PORT) || 8000;
+const PORT = Number(process.env.HTTP_PLATFORM_PORT) || Number(process.env.PORT) || 8000;
+const HOST = process.env.HTTP_PLATFORM_PORT ? '127.0.0.1' : '0.0.0.0';
 
-const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Core-API running on port ${PORT}`);
+const server = app.listen(PORT, HOST, () => {
+  console.log(`Core-API running on ${HOST}:${PORT}`);
 });
 
 function gracefulShutdown(signal: string) {
