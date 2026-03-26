@@ -8,20 +8,21 @@
 |----------|---------|----------|
 | Windows Server | 2016+ o Windows 10/11 | - |
 | IIS | Con rol Web Server | Windows Features |
+| httpPlatformHandler | Última | https://www.iis.net/downloads/microsoft/httpplatformhandler |
 | Node.js | 18+ | https://nodejs.org |
 | pnpm | Última | `npm install -g pnpm` |
-| NSSM | Última | https://nssm.cc/download |
-| URL Rewrite | Última | https://www.iis.net/downloads/microsoft/url-rewrite |
-| ARR | Última | https://www.iis.net/downloads/microsoft/application-request-routing |
 
-### Habilitar ARR en IIS
+### Instalar httpPlatformHandler
 
-1. Abrir IIS Manager
-2. Seleccionar el servidor (nivel superior)
-3. Doble clic en "Application Request Routing Cache"
-4. Click en "Server Proxy Settings..."
-5. Marcar "Enable proxy"
-6. Click en "Apply"
+1. Descargar de https://www.iis.net/downloads/microsoft/httpplatformhandler
+2. Ejecutar el instalador
+3. Reiniciar IIS: `iisreset`
+
+### Habilitar IIS
+
+1. Panel de Control -> Programas -> Activar o desactivar características de Windows
+2. Marcar "Internet Information Services"
+3. Aceptar y esperar la instalación
 
 ## Estructura de Archivos
 
@@ -65,18 +66,18 @@ Copy-Item deploy\env-examples\public-repo.env.example packages\public-repo\.env.
 .\deploy\deploy.ps1 -Environment QA
 ```
 
-### 3. Verificar Servicios
+El script realizará las siguientes acciones:
+1. Verificar prerrequisitos (Node.js, pnpm, IIS)
+2. Compilar las 3 aplicaciones
+3. Desplegar archivos a `C:\inetpub\wwwroot\`
+4. Crear sitios en IIS con httpPlatformHandler
+5. Reiniciar IIS
+
+### 3. Verificar Sitios IIS
 
 ```powershell
-# Verificar estado
-nssm status DriversAPI
-nssm status DriversAdmin
-nssm status DriversPublic
-
-# Verificar puertos
-netstat -ano | findstr :5001
-netstat -ano | findstr :5002
-netstat -ano | findstr :5003
+# Verificar sitios creados
+Get-Website | Where-Object {$_.Name -like "drivers*"}
 
 # Probar endpoints
 curl http://localhost:5001/health
@@ -94,36 +95,46 @@ curl http://localhost:5003
 | Swagger UI | http://localhost:5001/docs |
 | Health Check | http://localhost:5001/health |
 
-## Comandos Útiles NSSM
+## Gestión de Sitios IIS
+
+### Desde IIS Manager
+
+1. Abrir IIS Manager
+2. Expandir el servidor
+3. Click en "Sites"
+4. Ver los sitios: `drivers-api`, `drivers-admin`, `drivers-public`
+
+### Desde PowerShell
 
 ```powershell
-# Ver estado de todos los servicios
-nssm status DriversAPI
-nssm status DriversAdmin
-nssm status DriversPublic
+# Ver sitios
+Get-Website -Name "drivers*"
 
-# Reiniciar un servicio
-nssm restart DriversAPI
+# Iniciar sitio
+Start-Website -Name "drivers-api"
 
-# Detener un servicio
-nssm stop DriversAPI
+# Detener sitio
+Stop-Website -Name "drivers-api"
 
-# Ver logs
-nssm get DriversAPI AppStdout
-nssm get DriversAPI AppStderr
-
-# Eliminar servicio
-nssm remove DriversAPI confirm
+# Reiniciar IIS completo
+iisreset /restart
 ```
 
 ## Troubleshooting
 
-### El servicio no inicia
+### El sitio no inicia
 
 1. Verificar logs en `C:\inetpub\wwwroot\drivers-api\logs\`
 2. Verificar que el .env está configurado correctamente
 3. Verificar que la base de datos está accesible
-4. Verificar que el puerto no está en uso: `netstat -ano | findstr :5001`
+4. Verificar que httpPlatformHandler está instalado
+5. Verificar en IIS Manager que el Application Pool está corriendo
+
+### Error 500 - Internal Server Error
+
+1. Revisar logs de stdout en `.\logs\stdout`
+2. Verificar variables de entorno en el web.config
+3. Verificar permisos de la carpeta de despliegue
 
 ### CORS Error
 
@@ -136,9 +147,9 @@ nssm remove DriversAPI confirm
 2. Verificar que el `GOOGLE_DRIVE_FOLDER_ID` es correcto
 3. Verificar que la Service Account tiene permisos en el Shared Drive
 
-### IIS Reverse Proxy no funciona
+### httpPlatformHandler no funciona
 
-1. Verificar que URL Rewrite está instalado
-2. Verificar que ARR está habilitado (Enable proxy)
-3. Verificar que el web.config está en la carpeta correcta
-4. Reiniciar IIS: `iisreset`
+1. Verificar que httpPlatformHandler está instalado
+2. Verificar que el web.config tiene la configuración correcta
+3. Reiniciar IIS: `iisreset`
+4. Verificar que Node.js está en el PATH del sistema

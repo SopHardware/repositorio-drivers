@@ -29,27 +29,24 @@ $Services = @(
         DisplayName = "Drivers Boxito - API"
         SourceDir = Join-Path $ProjectRoot "packages\core-api"
         DeployDir = Join-Path $DeployRoot "drivers-api"
-        NodePort = 5001
-        Executable = "node.exe"
-        Arguments = "dist\server.js"
+        IISAppName = "drivers-api"
+        Port = 5001
     },
     @{
         Name = "DriversAdmin"
         DisplayName = "Drivers Boxito - Admin Portal"
         SourceDir = Join-Path $ProjectRoot "packages\admin-portal"
         DeployDir = Join-Path $DeployRoot "drivers-admin"
-        NodePort = 5002
-        Executable = "node.exe"
-        Arguments = "node_modules\next\dist\bin\next start -p 5002"
+        IISAppName = "drivers-admin"
+        Port = 5002
     },
     @{
         Name = "DriversPublic"
         DisplayName = "Drivers Boxito - Public Repo"
         SourceDir = Join-Path $ProjectRoot "packages\public-repo"
         DeployDir = Join-Path $DeployRoot "drivers-public"
-        NodePort = 5003
-        Executable = "node.exe"
-        Arguments = "node_modules\next\dist\bin\next start -p 5003"
+        IISAppName = "drivers-public"
+        Port = 5003
     }
 )
 
@@ -108,23 +105,25 @@ function Test-PnpmInstalled {
     }
 }
 
-function Test-NSSMInstalled {
+function Test-IISInstalled {
     try {
-        $null = Get-Command nssm -ErrorAction Stop
-        Write-Success "NSSM encontrado en PATH"
+        $null = Get-Command Get-IISSite -ErrorAction Stop
+        Write-Success "IIS PowerShell module encontrado"
         return $true
     } catch {
-        # Buscar en el directorio actual
-        $localPath = Join-Path $PSScriptRoot "nssm.exe"
-        if (Test-Path $localPath) {
-            Write-Success "NSSM encontrado en directorio local: $localPath"
-            # Agregar al PATH de la sesión actual
-            $env:Path = $env:Path + ";" + $PSScriptRoot
+        try {
+            # Verificar si IIS está instalado
+            $iisFeature = Get-WindowsFeature -Name Web-Server -ErrorAction Stop
+            if ($iisFeature.Installed) {
+                Write-Success "IIS instalado"
+                return $true
+            }
+        } catch {
+            Write-Warning "No se pudo verificar IIS. Continuando..."
             return $true
         }
-        Write-Warning "NSSM no encontrado. Descargar de https://nssm.cc/download y colocar en la carpeta deploy"
-        return $false
     }
+    return $true
 }
 
 function Build-Application {
@@ -137,11 +136,7 @@ function Build-Application {
     
     Push-Location $SourceDir
     try {
-        if ($Name -eq "DriversAPI") {
-            pnpm run build
-        } else {
-            pnpm run build
-        }
+        pnpm run build
         Write-Success "$Name compilado correctamente"
     } catch {
         Write-Error "Error compilando ${Name} - $_"
@@ -165,10 +160,16 @@ function Deploy-Application {
         New-Item -ItemType Directory -Path $DeployDir -Force | Out-Null
     }
     
+    # Crear directorio de logs
+    $logsDir = Join-Path $DeployDir "logs"
+    if (-not (Test-Path $logsDir)) {
+        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    }
+    
     # Copiar archivos
     if ($Name -eq "DriversAPI") {
-        # Para Express.js, copiar dist, node_modules, package.json, .env
-        $items = @("dist", "node_modules", "package.json", ".env", "src\config\secret")
+        # Para Express.js, copiar dist, node_modules, package.json, .env, config
+        $items = @("dist", "node_modules", "package.json", ".env", "src\config")
     } else {
         # Para Next.js, copiar .next, node_modules, package.json, .env.local, public
         $items = @(".next", "node_modules", "package.json", ".env.local", "public")
@@ -203,64 +204,51 @@ function Deploy-Application {
     Write-Success "$Name desplegado correctamente"
 }
 
-function Install-NSSMService {
+function Create-IISSite {
     param(
         [string]$Name,
-        [string]$DisplayName,
         [string]$DeployDir,
-        [string]$Arguments
+        [string]$IISAppName,
+        [int]$Port
     )
     
-    $nodePath = (Get-Command node).Source
-    
-    # Verificar si el servicio ya existe
-    $existingService = Get-Service -Name $Name -ErrorAction SilentlyContinue
-    
-    if ($existingService) {
-        Write-Warning "Servicio $Name ya existe. Deteniendo..."
-        nssm stop $Name 2>$null
-        nssm remove $Name confirm 2>$null
-    }
-    
-    # Instalar servicio
-    Write-Host "Instalando servicio $Name..." -ForegroundColor Yellow
-    
-    nssm install $Name $nodePath $Arguments
-    nssm set $Name AppDirectory $DeployDir
-    nssm set $Name DisplayName $DisplayName
-    nssm set $Name Description "Servicio del sistema Drivers Boxito"
-    nssm set $Name Start SERVICE_AUTO_START
-    nssm set $Name AppStdout (Join-Path $DeployDir "logs\stdout.log")
-    nssm set $Name AppStderr (Join-Path $DeployDir "logs\stderr.log")
-    nssm set $Name AppRotateFiles 1
-    nssm set $Name AppRotateBytes 10485760
-    
-    # Crear directorio de logs
-    $logsDir = Join-Path $DeployDir "logs"
-    if (-not (Test-Path $logsDir)) {
-        New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
-    }
-    
-    Write-Success "Servicio $Name instalado"
-}
-
-function Start-NSSMService {
-    param([string]$Name)
-    
-    Write-Host "Iniciando servicio $Name..." -ForegroundColor Yellow
+    Write-Host "Configurando IIS Site: $IISAppName en puerto $Port..." -ForegroundColor Yellow
     
     try {
-        nssm start $Name
-        Start-Sleep -Seconds 3
+        Import-Module WebAdministration -ErrorAction Stop
         
-        $status = nssm status $Name
-        if ($status -eq "SERVICE_RUNNING") {
-            Write-Success "Servicio $Name iniciado correctamente"
-        } else {
-            Write-Warning "Servicio $Name estado: $status"
+        # Verificar si el sitio ya existe
+        $existingSite = Get-Website -Name $IISAppName -ErrorAction SilentlyContinue
+        
+        if ($existingSite) {
+            Write-Warning "Sitio $IISAppName ya existe. Deteniendo..."
+            Stop-Website -Name $IISAppName -ErrorAction SilentlyContinue
+            Remove-Website -Name $IISAppName -ErrorAction SilentlyContinue
         }
+        
+        # Crear Application Pool
+        $poolName = "$IISAppName-pool"
+        $existingPool = Get-IISAppPool -Name $poolName -ErrorAction SilentlyContinue
+        
+        if ($existingPool) {
+            Remove-WebAppPool -Name $poolName -ErrorAction SilentlyContinue
+        }
+        
+        New-WebAppPool -Name $poolName
+        Set-ItemProperty "IIS:\AppPools\$poolName" -Name "managedRuntimeVersion" -Value ""
+        Set-ItemProperty "IIS:\AppPools\$poolName" -Name "startMode" -Value "AlwaysRunning"
+        
+        # Crear sitio web
+        New-Website -Name $IISAppName -PhysicalPath $DeployDir -Port $Port -ApplicationPool $poolName
+        
+        # Iniciar el sitio
+        Start-Website -Name $IISAppName
+        
+        Write-Success "Sitio IIS $IISAppName creado y configurado"
+        return $true
     } catch {
-        Write-Error "Error iniciando servicio ${Name} - $_"
+        Write-Error "Error configurando IIS Site ${IISAppName} - $_"
+        return $false
     }
 }
 
@@ -282,17 +270,15 @@ Write-Header "Verificando prerrequisitos"
 
 $nodeInstalled = Test-NodeInstalled
 $pnpmInstalled = Test-PnpmInstalled
-$nssmInstalled = Test-NSSMInstalled
+$iisInstalled = Test-IISInstalled
 
-# Solo Node.js y pnpm son obligatorios
 if (-not $nodeInstalled -or -not $pnpmInstalled) {
     Write-Error "Prerrequisitos obligatorios no cumplidos. Por favor instalar Node.js y pnpm."
     exit 1
 }
 
-if (-not $nssmInstalled) {
-    Write-Warning "NSSM no encontrado. Los servicios de Windows no se instalarán automáticamente."
-    Write-Host "Puede descargar NSSM de: https://nssm.cc/download"
+if (-not $iisInstalled) {
+    Write-Warning "No se pudo verificar IIS. Asegúrese de que IIS esté instalado."
 }
 
 # Compilar aplicaciones
@@ -309,41 +295,38 @@ foreach ($service in $Services) {
     Deploy-Application -Name $service.Name -SourceDir $service.SourceDir -DeployDir $service.DeployDir
 }
 
-# Instalar servicios NSSM (solo si NSSM está disponible)
-if ($nssmInstalled) {
-    Write-Header "Instalando servicios Windows"
+# Configurar IIS Sites
+Write-Header "Configurando IIS Sites"
 
-    foreach ($service in $Services) {
-        $nodePath = (Get-Command node).Source
-        Install-NSSMService -Name $service.Name -DisplayName $service.DisplayName -DeployDir $service.DeployDir -Arguments $service.Arguments
-    }
+foreach ($service in $Services) {
+    Create-IISSite -Name $service.Name -DeployDir $service.DeployDir -IISAppName $service.IISAppName -Port $service.Port
+}
 
-    # Iniciar servicios
-    Write-Header "Iniciando servicios"
+# Reiniciar IIS
+Write-Header "Reiniciando IIS"
 
-    foreach ($service in $Services) {
-        Start-NSSMService -Name $service.Name
-    }
+try {
+    iisreset /restart | Out-Null
+    Write-Success "IIS reiniciado correctamente"
+} catch {
+    Write-Warning "No se pudo reiniciar IIS automáticamente. Reiniciar manualmente con: iisreset"
+}
 
-    # Verificar estado
-    Write-Header "Verificando estado de servicios"
+# Verificar estado
+Write-Header "Verificando estado de sitios"
 
-    foreach ($service in $Services) {
-        $status = nssm status $service.Name 2>$null
-        $port = $service.NodePort
-        
-        Write-Host "$($service.Name): $status (Puerto $port)" -ForegroundColor $(if ($status -eq "SERVICE_RUNNING") { "Green" } else { "Yellow" })
-    }
-} else {
-    Write-Header "Servicios Windows no instalados"
-    Write-Warning "Para instalar los servicios manualmente:"
-    Write-Host "  1. Descargar NSSM de https://nssm.cc/download"
-    Write-Host "  2. Colocar nssm.exe en la carpeta deploy"
-    Write-Host "  3. Volver a ejecutar este script"
-    Write-Host ""
-    Write-Host "O ejecutar las aplicaciones manualmente:"
-    foreach ($service in $Services) {
-        Write-Host "  - $($service.Name): cd $($service.DeployDir) && node $($service.Arguments)"
+foreach ($service in $Services) {
+    try {
+        Import-Module WebAdministration -ErrorAction Stop
+        $site = Get-Website -Name $service.IISAppName -ErrorAction SilentlyContinue
+        if ($site) {
+            $status = $site.State
+            Write-Host "$($service.IISAppName): $status (Puerto $($service.Port))" -ForegroundColor $(if ($status -eq "Started") { "Green" } else { "Yellow" })
+        } else {
+            Write-Host "$($service.IISAppName): No encontrado" -ForegroundColor Red
+        }
+    } catch {
+        Write-Warning "No se pudo verificar el estado de $($service.IISAppName)"
     }
 }
 
@@ -357,3 +340,7 @@ Write-Host "  - Public Repo:  http://localhost:5003" -ForegroundColor White
 Write-Host ""
 Write-Host "Documentación API: http://localhost:5001/docs" -ForegroundColor White
 Write-Host "Health Check:      http://localhost:5001/health" -ForegroundColor White
+Write-Host ""
+Write-Host "Administrar sitios IIS:" -ForegroundColor Cyan
+Write-Host "  - IIS Manager -> Sites" -ForegroundColor White
+Write-Host "  - Reiniciar: iisreset" -ForegroundColor White
