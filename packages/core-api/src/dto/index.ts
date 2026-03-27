@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 
 export const LoginSchema = z.object({
   username: z.string().min(3).max(50),
@@ -59,6 +60,14 @@ export const DriverQuerySchema = z.object({
     .optional(),
   search: z.string().optional(),
 });
+
+export const LoginSchemaJSON = zodToJsonSchema(LoginSchema, 'LoginSchema');
+export const RefreshTokenSchemaJSON = zodToJsonSchema(RefreshTokenSchema, 'RefreshTokenSchema');
+export const CreateUserSchemaJSON = zodToJsonSchema(CreateUserSchema, 'CreateUserSchema');
+export const UpdatePasswordSchemaJSON = zodToJsonSchema(UpdatePasswordSchema, 'UpdatePasswordSchema');
+export const CreateDriverSchemaJSON = zodToJsonSchema(CreateDriverSchema, 'CreateDriverSchema');
+export const UpdateDriverSchemaJSON = zodToJsonSchema(UpdateDriverSchema, 'UpdateDriverSchema');
+export const DriverQuerySchemaJSON = zodToJsonSchema(DriverQuerySchema, 'DriverQuerySchema');
 
 export type LoginInput = z.infer<typeof LoginSchema>;
 export type RefreshTokenInput = z.infer<typeof RefreshTokenSchema>;

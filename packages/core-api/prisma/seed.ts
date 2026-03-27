@@ -6,8 +6,20 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Starting seed...');
 
-  const adminPassword = await passwordHasher.hash('AdminSistemas2026!');
-  const soportePassword = await passwordHasher.hash('SoporteWP2026!');
+  // Obtener contraseñas de variables de entorno (sin valor por defecto)
+  const adminPasswordPlain = process.env.SEED_ADMIN_PASSWORD;
+  const soportePasswordPlain = process.env.SEED_SOPORTE_PASSWORD;
+
+  if (!adminPasswordPlain || !soportePasswordPlain) {
+    console.error('Error: Las variables de entorno SEED_ADMIN_PASSWORD y SEED_SOPORTE_PASSWORD son requeridas');
+    console.error('');
+    console.error('Uso:');
+    console.error('  SEED_ADMIN_PASSWORD="MiPassword123!" SEED_SOPORTE_PASSWORD="OtroPass456!" npx prisma db seed');
+    process.exit(1);
+  }
+
+  const adminPassword = await passwordHasher.hash(adminPasswordPlain);
+  const soportePassword = await passwordHasher.hash(soportePasswordPlain);
 
   const adminUser = await prisma.user.upsert({
     where: { username: 'admin_sistemas' },
