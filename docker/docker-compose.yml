@@ -23,7 +23,7 @@ services:
   # 2. Core-API (Express + TypeScript)
   core-api:
     build:
-      context: . # Indica que Docker debe mirar desde la raíz del repositorio
+      context: .. # Indica que Docker debe mirar desde la raíz del repositorio
       dockerfile: docker/Dockerfile.core-api # Ruta relativa desde la raíz
     container_name: boxito-core-api
     environment:
@@ -49,7 +49,7 @@ services:
   # 3. Admin-Portal (Next.js)
   admin-portal:
     build:
-      context: . # Raíz del repositorio
+      context: .. # Raíz del repositorio
       dockerfile: docker/Dockerfile.admin-portal
     container_name: boxito-admin-portal
     environment:
