@@ -29,7 +29,7 @@ services:
     environment:
       DATABASE_URL: postgresql://drivers_user:${DB_PASSWORD}@postgres:5432/DbInfra?schema=drivers
       JWT_SECRET: ${JWT_SECRET}
-      GOOGLE_DRIVE_CREDENTIALS_PATH: /app/credentials.json
+      GOOGLE_DRIVE_CREDENTIALS_PATH: /app/src/config/credentials.json
       GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID}
       API_KEY_ADMIN_PORTAL: ${API_KEY_ADMIN_PORTAL}
       API_KEY_PUBLIC_REPO: ${API_KEY_PUBLIC_REPO}
