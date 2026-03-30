@@ -1,35 +1,33 @@
-# ETAPA 1: Construcción (Builder)
+# ETAPA 1: Builder
 FROM node:20-alpine AS builder
+# Instalamos dependencias necesarias para compilar en Alpine
+RUN apk add --no-cache openssl libc6-compat
+
 WORKDIR /app
 
-# Copiamos los package.json de la raíz y del paquete específico
 COPY package*.json ./
 COPY packages/core-api/package*.json ./packages/core-api/
 
-# Instalamos TODAS las dependencias en la raíz
 RUN npm install
 
-# Copiamos el código fuente de la API y Prisma
 COPY packages/core-api ./packages/core-api
 
-# Generamos el cliente de Prisma y compilamos el TypeScript
 WORKDIR /app/packages/core-api
 RUN npx prisma generate
 RUN npm run build
 
-# ETAPA 2: Ejecución (Runner)
+# ETAPA 2: Runner
 FROM node:20-alpine
+# TAMBIÉN instalamos las librerías en la etapa final
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
-# --- AQUÍ ESTÁ EL CAMBIO DE RUTAS ---
-# Copiamos las node_modules desde la raíz del builder
 COPY --from=builder /app/node_modules ./node_modules
-# Copiamos los archivos compilados y necesarios del paquete
 COPY --from=builder /app/packages/core-api/dist ./dist
 COPY --from=builder /app/packages/core-api/package*.json ./
 COPY --from=builder /app/packages/core-api/prisma ./prisma
 
 EXPOSE 5001
 
-# Ejecutamos migraciones y lanzamos la app
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
