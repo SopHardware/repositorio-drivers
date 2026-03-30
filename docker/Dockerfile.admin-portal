@@ -1,16 +1,27 @@
-FROM node:20-alpine
-
+# ETAPA 1: Builder
+FROM node:20-alpine AS builder
 WORKDIR /app
 
-# Copiar archivos de build standalone
-COPY .next/standalone ./
-COPY .next/static ./.next/static/
-COPY public/ ./public/
-COPY package.json ./
+COPY package*.json ./
+COPY packages/admin-portal/package*.json ./packages/admin-portal/
 
-ENV PORT=5002
-ENV HOSTNAME="0.0.0.0"
+RUN npm install
+
+COPY packages/admin-portal ./packages/admin-portal
+
+WORKDIR /app/packages/admin-portal
+RUN npm run build
+
+# ETAPA 2: Runner
+FROM node:20-alpine
+WORKDIR /app
+
+# Copiamos node_modules de la raíz y la carpeta .next del paquete
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/admin-portal/.next ./.next
+COPY --from=builder /app/packages/admin-portal/public ./public
+COPY --from=builder /app/packages/admin-portal/package*.json ./
 
 EXPOSE 5002
 
-CMD ["node", "server.js"]
+CMD ["npm", "start"]
