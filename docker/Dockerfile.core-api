@@ -1,7 +1,8 @@
 # ETAPA 1: Builder
-FROM node:20-alpine AS builder
-# Instalamos dependencias necesarias para compilar en Alpine
-RUN apk add --no-cache openssl libc6-compat
+FROM node:20-slim AS builder
+
+# Instalar dependencias necesarias para Prisma en Debian
+RUN apt-get update -y && apt-get install -y openssl
 
 WORKDIR /app
 
@@ -17,9 +18,9 @@ RUN npx prisma generate
 RUN npm run build
 
 # ETAPA 2: Runner
-FROM node:20-alpine
-# TAMBIÉN instalamos las librerías en la etapa final
-RUN apk add --no-cache openssl
+FROM node:20-slim
+# Instalar openssl también en la etapa de ejecución
+RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
