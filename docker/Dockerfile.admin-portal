@@ -15,6 +15,11 @@ COPY packages/admin-portal ./packages/admin-portal
 WORKDIR /app/packages/admin-portal
 
 RUN mkdir -p public
+
+# DECLARAR EL ARGUMENTO
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 # Ejecutamos el build de Next.js
 RUN npm run build
 
