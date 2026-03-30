@@ -51,6 +51,9 @@ services:
     build:
       context: .. # Raíz del repositorio
       dockerfile: docker/Dockerfile.admin-portal
+      args:
+        - NEXT_PUBLIC_API_URL=http://10.40.3.170:5001
+        - NEXT_PUBLIC_PUBLIC_REPO_URL=http://10.40.3.22:5003
     container_name: boxito-admin-portal
     environment:
       NEXT_PUBLIC_API_URL: http://10.40.3.170:5001
