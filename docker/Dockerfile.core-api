@@ -19,13 +19,15 @@ RUN npm run build
 
 # ETAPA 2: Runner
 FROM node:20-slim
-# Instalar openssl también en la etapa de ejecución
 RUN apt-get update -y && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/core-api/dist ./dist
+
+# COPIAMOS LA CARPETA CONFIG (Aquí va el swagger.yaml)
+COPY --from=builder /app/packages/core-api/src/config ./src/config
+
 COPY --from=builder /app/packages/core-api/package*.json ./
 COPY --from=builder /app/packages/core-api/prisma ./prisma
 
