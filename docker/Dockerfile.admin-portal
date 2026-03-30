@@ -37,4 +37,4 @@ COPY --from=builder /app/packages/admin-portal/package*.json ./
 EXPOSE 5002
 
 # Para Next.js en producción, solemos usar "npm start"
-CMD ["npm", "start"]
+CMD ["npm", "start", "--", "-p", "5002"]
