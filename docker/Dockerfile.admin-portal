@@ -2,26 +2,34 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# Copiamos archivos de dependencias
 COPY package*.json ./
 COPY packages/admin-portal/package*.json ./packages/admin-portal/
 
+# Instalamos dependencias (en la raíz del monorepo)
 RUN npm install
 
+# Copiamos todo el código del portal
 COPY packages/admin-portal ./packages/admin-portal
 
 WORKDIR /app/packages/admin-portal
+
+RUN mkdir -p public
+# Ejecutamos el build de Next.js
 RUN npm run build
 
 # ETAPA 2: Runner
 FROM node:20-alpine
 WORKDIR /app
 
-# Copiamos node_modules de la raíz y la carpeta .next del paquete
+# Copiamos node_modules de la raíz
 COPY --from=builder /app/node_modules ./node_modules
+# Copiamos lo necesario de admin-portal
 COPY --from=builder /app/packages/admin-portal/.next ./.next
 COPY --from=builder /app/packages/admin-portal/public ./public
 COPY --from=builder /app/packages/admin-portal/package*.json ./
 
 EXPOSE 5002
 
+# Para Next.js en producción, solemos usar "npm start"
 CMD ["npm", "start"]
