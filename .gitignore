@@ -36,3 +36,7 @@ coverage/
 
 # Misc
 *.log
+
+# Docker (sensitive)
+docker/.env.docker
+docker/credentials/

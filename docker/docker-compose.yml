@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: boxito-db
+    environment:
+      POSTGRES_USER: drivers_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: DbInfra
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drivers_user -d DbInfra"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Core-API (Express)
+  core-api:
+    build:
+      context: ../packages/core-api
+      dockerfile: ../../docker/Dockerfile.core-api
+    container_name: boxito-core-api
+    environment:
+      DATABASE_URL: postgresql://drivers_user:${DB_PASSWORD}@postgres:5432/DbInfra?schema=drivers
+      JWT_SECRET: ${JWT_SECRET}
+      GOOGLE_DRIVE_CREDENTIALS_PATH: /app/credentials.json
+      GOOGLE_DRIVE_FOLDER_ID: ${GOOGLE_DRIVE_FOLDER_ID}
+      API_KEY_ADMIN_PORTAL: ${API_KEY_ADMIN_PORTAL}
+      API_KEY_PUBLIC_REPO: ${API_KEY_PUBLIC_REPO}
+      PORT: 5001
+      NODE_ENV: production
+      CORS_ORIGINS: http://10.40.3.170:5001,http://10.40.3.170:5002,http://10.40.3.22:5003
+      PUBLIC_REPO_ORIGINS: "*"
+    volumes:
+      - ./credentials/credentials.json:/app/credentials.json:ro
+    ports:
+      - "5001:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Admin-Portal (Next.js)
+  admin-portal:
+    build:
+      context: ../packages/admin-portal
+      dockerfile: ../../docker/Dockerfile.admin-portal
+    container_name: boxito-admin-portal
+    environment:
+      NEXT_PUBLIC_API_URL: http://10.40.3.170:5001
+      NEXT_PUBLIC_PUBLIC_REPO_URL: http://10.40.3.22:5003
+    ports:
+      - "5002:5002"
+    depends_on:
+      - core-api
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

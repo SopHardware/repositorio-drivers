@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Upload, Loader2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Upload, Loader2, AlertCircle, AlertTriangle, FileText } from 'lucide-react';
 import { Button, Input, Card } from '@/components/ui';
+import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/context/AuthContext';
-import { uploadDriverFile, createDriver } from '@/lib/api';
+import { uploadDriverFile, createDriver, calculateFileHash, checkDuplicateDriver, DuplicateCheckResult } from '@/lib/api';
 
 const HARDWARE_TYPES = ['IMPRESORA', 'ESCANER', 'TARJETA_RED', 'USB', 'DISCO_DURO', 'OPTICO', 'OTRO'];
 
@@ -16,6 +17,11 @@ export default function NewDriverPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
+  const [fileHash, setFileHash] = useState<string | null>(null);
+  
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [duplicateDriver, setDuplicateDriver] = useState<DuplicateCheckResult['driver']>(null);
   
   const [formData, setFormData] = useState({
     driverName: '', brand: '', model: '', version: '', hardwareType: 'IMPRESORA', fileExtension: '', fileSize: 0, driveFileId: '',
@@ -26,12 +32,34 @@ export default function NewDriverPage() {
     if (!authLoading && !user) router.push('/login');
   }, [authLoading, user, router]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (f) {
       setFile(f);
+      setFileHash(null);
+      setDuplicateDriver(null);
       const ext = '.' + f.name.split('.').pop()?.toLowerCase();
       setFormData({ ...formData, fileExtension: ext, fileSize: f.size, driverName: f.name.replace(/\.[^/.]+$/, '') });
+    }
+  };
+
+  const checkForDuplicate = async () => {
+    if (!file || !fileHash) return false;
+    
+    setCheckingDuplicate(true);
+    try {
+      const result = await checkDuplicateDriver(fileHash);
+      if (result.exists && result.driver) {
+        setDuplicateDriver(result.driver);
+        setShowDuplicateModal(true);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.error('Error checking duplicate:', err);
+      return false;
+    } finally {
+      setCheckingDuplicate(false);
     }
   };
 
@@ -41,7 +69,30 @@ export default function NewDriverPage() {
     setError(''); setLoading(true);
 
     try {
-      setUploading(true);
+      const hash = await calculateFileHash(file);
+      setFileHash(hash);
+
+      const isDuplicate = await checkDuplicateDriver(hash);
+      if (isDuplicate.exists && isDuplicate.driver) {
+        setDuplicateDriver(isDuplicate.driver);
+        setShowDuplicateModal(true);
+        setLoading(false);
+        return;
+      }
+
+      await proceedWithUpload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear driver');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const proceedWithUpload = async () => {
+    if (!file) return;
+    
+    setUploading(true);
+    try {
       const uploadResult = await uploadDriverFile(file);
       
       const driverData = {
@@ -49,6 +100,7 @@ export default function NewDriverPage() {
         driveFileId: uploadResult.data.driveFileId,
         fileSize: uploadResult.data.fileSize || file.size,
         fileExtension: uploadResult.data.fileName.split('.').pop() || formData.fileExtension,
+        fileHash: fileHash,
       };
 
       await createDriver(driverData);
@@ -56,8 +108,36 @@ export default function NewDriverPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al crear driver');
     } finally {
-      setLoading(false); setUploading(false);
+      setUploading(false);
     }
+  };
+
+  const handleReplace = async () => {
+    setShowDuplicateModal(false);
+    setLoading(true);
+    try {
+      const uploadResult = await uploadDriverFile(file!);
+      
+      const driverData = {
+        ...formData,
+        driveFileId: uploadResult.data.driveFileId,
+        fileSize: uploadResult.data.fileSize || file!.size,
+        fileExtension: uploadResult.data.fileName.split('.').pop() || formData.fileExtension,
+        fileHash: fileHash,
+      };
+
+      await createDriver(driverData);
+      router.push('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear driver');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUploadAsNew = async () => {
+    setShowDuplicateModal(false);
+    await proceedWithUpload();
   };
 
   if (authLoading) return <div className="min-h-screen bg-app-bg flex items-center justify-center">Cargando...</div>;
@@ -120,14 +200,75 @@ export default function NewDriverPage() {
 
             <div className="flex justify-end gap-4 pt-4">
               <Link href="/" className="btn-secondary">Cancelar</Link>
-              <Button type="submit" disabled={loading || uploading} className="flex items-center gap-2">
-                {(loading || uploading) && <Loader2 className="w-4 h-4 animate-spin" />}
-                {uploading ? 'Subiendo...' : loading ? 'Guardando...' : 'Crear Driver'}
+              <Button type="submit" disabled={loading || uploading || checkingDuplicate} className="flex items-center gap-2">
+                {(loading || uploading || checkingDuplicate) && <Loader2 className="w-4 h-4 animate-spin" />}
+                {checkingDuplicate ? 'Verificando...' : uploading ? 'Subiendo...' : loading ? 'Guardando...' : 'Crear Driver'}
               </Button>
             </div>
           </form>
         </Card>
       </main>
+
+      <Modal
+        isOpen={showDuplicateModal}
+        onClose={() => setShowDuplicateModal(false)}
+        title="Archivo Duplicado"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+            <AlertTriangle className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium text-amber-800">Ya existe un archivo idéntico en el repositorio</p>
+              <p className="text-sm text-amber-700 mt-1">
+                El archivo que intentas subir tiene el mismo contenido que uno ya existente.
+              </p>
+            </div>
+          </div>
+
+          {duplicateDriver && (
+            <div className="p-4 bg-card-bg border border-border-soft rounded-lg">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="w-5 h-5 text-text-muted" />
+                <span className="font-medium text-text-main">Driver existente:</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                  <span className="text-text-muted">Nombre:</span>
+                  <p className="text-text-main font-medium">{duplicateDriver.driverName}</p>
+                </div>
+                <div>
+                  <span className="text-text-muted">Marca:</span>
+                  <p className="text-text-main font-medium">{duplicateDriver.brand}</p>
+                </div>
+                <div>
+                  <span className="text-text-muted">Modelo:</span>
+                  <p className="text-text-main font-medium">{duplicateDriver.model}</p>
+                </div>
+                <div>
+                  <span className="text-text-muted">Versión:</span>
+                  <p className="text-text-main font-medium">{duplicateDriver.version}</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <Button 
+              variant="outline" 
+              className="flex-1"
+              onClick={handleUploadAsNew}
+            >
+              Subir como Nuevo
+            </Button>
+            <Button 
+              className="flex-1"
+              onClick={handleReplace}
+            >
+              Reemplazar
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

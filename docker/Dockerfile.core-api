@@ -1,0 +1,25 @@
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copiar package.json y package-lock.json
+COPY package*.json ./
+
+# Instalar solo producción + prisma
+RUN npm ci --omit=dev && \
+    npm install prisma@5.10.0 @prisma/client@5.10.0 --omit=dev
+
+# Copiar código compilado
+COPY dist/ ./dist/
+COPY prisma/ ./prisma/
+COPY src/config/swagger.yaml ./src/config/swagger.yaml
+
+# Generar Prisma Client
+RUN npx prisma generate
+
+# Crear directorio para logs
+RUN mkdir -p /app/logs
+
+EXPOSE 5001
+
+CMD ["node", "dist/src/server.js"]

@@ -203,6 +203,36 @@ export async function uploadDriverFile(file: File) {
   }
 }
 
+export async function calculateFileHash(file: File): Promise<string> {
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export interface DuplicateCheckResult {
+  exists: boolean;
+  driver: {
+    id: number;
+    driverName: string;
+    brand: string;
+    model: string;
+    version: string;
+    hardwareType: string;
+    fileHash: string;
+    createdAt: string;
+  } | null;
+}
+
+export async function checkDuplicateDriver(fileHash: string): Promise<DuplicateCheckResult> {
+  try {
+    const response = await api.post('/drivers/check-duplicate', { fileHash });
+    return response.data.data;
+  } catch (error) {
+    throw handleError(error);
+  }
+}
+
 export async function getUsers() {
   try {
     const response = await api.get('/users');
