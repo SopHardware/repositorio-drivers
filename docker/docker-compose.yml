@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # PostgreSQL
+  # 1. Base de Datos (PostgreSQL)
   postgres:
     image: postgres:15-alpine
     container_name: boxito-db
@@ -18,12 +18,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
 
-  # Core-API (Express)
+  # 2. Core-API (Express + TypeScript)
   core-api:
     build:
-      context: ../packages/core-api
-      dockerfile: ../../docker/Dockerfile.core-api
+      context: . # Indica que Docker debe mirar desde la raíz del repositorio
+      dockerfile: docker/Dockerfile.core-api # Ruta relativa desde la raíz
     container_name: boxito-core-api
     environment:
       DATABASE_URL: postgresql://drivers_user:${DB_PASSWORD}@postgres:5432/DbInfra?schema=drivers
@@ -37,7 +38,7 @@ services:
       CORS_ORIGINS: http://10.40.3.170:5001,http://10.40.3.170:5002,http://10.40.3.22:5003
       PUBLIC_REPO_ORIGINS: "*"
     volumes:
-      - ./credentials/credentials.json:/app/credentials.json:ro
+      - /home/boxadm/secrets/credentials.json:/app/credentials.json:ro
     ports:
       - "5001:5001"
     depends_on:
@@ -45,11 +46,11 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # Admin-Portal (Next.js)
+  # 3. Admin-Portal (Next.js)
   admin-portal:
     build:
-      context: ../packages/admin-portal
-      dockerfile: ../../docker/Dockerfile.admin-portal
+      context: . # Raíz del repositorio
+      dockerfile: docker/Dockerfile.admin-portal
     container_name: boxito-admin-portal
     environment:
       NEXT_PUBLIC_API_URL: http://10.40.3.170:5001
