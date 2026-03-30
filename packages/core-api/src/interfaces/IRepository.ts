@@ -9,6 +9,7 @@ export interface CreateDriverDTO {
   driveFileId: string;
   fileExtension: string;
   fileSize: number;
+  fileHash?: string;
   uploadedById: string;
 }
 
@@ -30,6 +31,7 @@ export interface DriverFilters {
 export interface IDriverRepository {
   create(data: CreateDriverDTO): Promise<HardwareDriver>;
   findById(id: number): Promise<HardwareDriver | null>;
+  findByHash(fileHash: string): Promise<HardwareDriver | null>;
   findAll(filters?: DriverFilters): Promise<HardwareDriver[]>;
   update(id: number, data: UpdateDriverDTO): Promise<HardwareDriver>;
   delete(id: number): Promise<void>;

@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import multer from 'multer';
@@ -21,21 +24,59 @@ const __dirname = dirname(__filename);
 
 const app: Express = express();
 
+// CORS dinámico desde variable de entorno
+const corsOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
+  : ['http://localhost:5001', 'http://localhost:5002', 'http://localhost:5003'];
+
+// Allow all origins for public-repo if PUBLIC_REPO_ORIGINS=*
+const publicRepoAllowAll = process.env.PUBLIC_REPO_ORIGINS === '*';
+
 app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://localhost:5001',
-    'http://localhost:5002',
-    'http://localhost:5003',
-  ],
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // Check if PUBLIC_REPO_ORIGINS=* is set
+    if (publicRepoAllowAll) {
+      return callback(null, true);
+    }
+
+    // Otherwise use the whitelist
+    if (corsOrigins.includes(origin)) {
+      return callback(null, origin);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
 }));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(helmet());
+
+// Cargar swagger antes de definir rutas
+const swaggerFile = readFileSync(join(process.cwd(), 'src', 'config', 'swagger.yaml'), 'utf-8');
+const swaggerDocument = YAML.parse(swaggerFile);
+
+// Swagger ANTES de helmet para evitar conflictos de COOP/COEP en swagger-ui
+app.get('/swagger.json', (_req: Request, res: Response) => {
+  res.json(swaggerDocument);
+});
+
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  swaggerOptions: {
+    persistAuthorization: true,
+    url: '/swagger.json',
+  },
+}));
+
+// Helmet después de swagger para no afectar las rutas de documentación
+app.use(helmet({
+  contentSecurityPolicy: false,
+}));
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -54,20 +95,6 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
   console.log(`[${timestamp}] ${req.method} ${req.url}`);
   next();
 });
-
-const swaggerFile = readFileSync(join(process.cwd(), 'src', 'config', 'swagger.yaml'), 'utf-8');
-const swaggerDocument = YAML.parse(swaggerFile);
-
-app.get('/swagger.json', (_req: Request, res: Response) => {
-  res.json(swaggerDocument);
-});
-
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
-  swaggerOptions: {
-    persistAuthorization: true,
-    url: '/swagger.json',
-  },
-}));
 
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

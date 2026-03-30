@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction, Router as RouterType } from 'express';
 import multer from 'multer';
+import crypto from 'crypto';
 import { driverRepository } from '../repositories/PrismaRepository.js';
 import { storage } from '../services/StorageFactory.js';
 import {
@@ -45,6 +46,44 @@ function getMimeType(extension: string): string {
 export const driverRouter: RouterType = Router();
 
 driverRouter.use(authMiddleware);
+
+driverRouter.post('/check-duplicate', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { fileHash } = req.body;
+    
+    if (!fileHash) {
+      throw new BadRequestError('Se requiere el hash del archivo');
+    }
+
+    const existingDriver = await driverRepository.findByHash(fileHash);
+
+    if (!existingDriver) {
+      return res.json({
+        success: true,
+        data: { exists: false, driver: null }
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        exists: true,
+        driver: {
+          id: existingDriver.id,
+          driverName: existingDriver.driverName,
+          brand: existingDriver.brand,
+          model: existingDriver.model,
+          version: existingDriver.version,
+          hardwareType: existingDriver.hardwareType,
+          fileHash: existingDriver.fileHash,
+          createdAt: existingDriver.createdAt,
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
 
 driverRouter.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -188,6 +227,7 @@ driverRouter.post(
       }
 
       const mimeType = getMimeType(extension);
+      const fileHash = crypto.createHash('sha256').update(file.buffer).digest('hex');
       const uploadResult = await storage.upload(fileName, mimeType, file.buffer, size);
 
       return res.status(201).json({
@@ -197,6 +237,7 @@ driverRouter.post(
           fileName: uploadResult.fileName,
           fileSize: uploadResult.size,
           mimeType: uploadResult.mimeType,
+          fileHash: fileHash,
         },
       });
     } catch (error) {

@@ -1,4 +1,7 @@
-import { PrismaClient, HardwareDriver, User, HardwareType, UserRole } from '@prisma/client';
+import pkg from '@prisma/client';
+const { PrismaClient } = pkg;
+import type { HardwareDriver, User, HardwareType, UserRole } from '@prisma/client';
+import type { PrismaClient as PrismaClientType } from '@prisma/client';
 import {
   IDriverRepository,
   IUserRepository,
@@ -19,7 +22,7 @@ interface PaginationParams {
 
 export class PrismaDriverRepository implements IDriverRepository {
   private static instance: PrismaDriverRepository;
-  private prisma: PrismaClient;
+  private prisma: PrismaClientType;
 
   private constructor() {
     this.prisma = new PrismaClient();
@@ -61,6 +64,10 @@ export class PrismaDriverRepository implements IDriverRepository {
 
   async findById(id: number): Promise<HardwareDriver | null> {
     return this.prisma.hardwareDriver.findUnique({ where: { id } });
+  }
+
+  async findByHash(fileHash: string): Promise<HardwareDriver | null> {
+    return this.prisma.hardwareDriver.findFirst({ where: { fileHash } });
   }
 
   async findAll(filters?: DriverFilters): Promise<HardwareDriver[]> {
@@ -112,7 +119,7 @@ export class PrismaDriverRepository implements IDriverRepository {
 
 export class PrismaUserRepository implements IUserRepository {
   private static instance: PrismaUserRepository;
-  private prisma: PrismaClient;
+  private prisma: PrismaClientType;
 
   private constructor() {
     this.prisma = new PrismaClient();
