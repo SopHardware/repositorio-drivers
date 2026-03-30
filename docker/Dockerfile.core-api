@@ -31,4 +31,4 @@ COPY --from=builder /app/packages/core-api/prisma ./prisma
 
 EXPOSE 5001
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/index.js"]
+CMD ["sleep", "infinity"]
