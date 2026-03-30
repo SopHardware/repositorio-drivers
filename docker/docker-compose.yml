@@ -38,7 +38,7 @@ services:
       CORS_ORIGINS: http://10.40.3.170:5001,http://10.40.3.170:5002,http://10.40.3.22:5003
       PUBLIC_REPO_ORIGINS: "*"
     volumes:
-      - /home/boxadm/secrets/credentials.json:/app/credentials.json:ro
+      - /home/boxadm/secrets/credentials.json:/app/src/config/credentials.json:ro
     ports:
       - "5001:5001"
     depends_on:
