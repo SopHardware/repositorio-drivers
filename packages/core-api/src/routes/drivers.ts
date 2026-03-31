@@ -20,7 +20,7 @@ interface CursorParams {
 }
 
 const ALLOWED_EXTENSIONS = ['.exe', '.zip', '.rar', '.7z', '.msi', '.dmg', '.pkg', '.deb', '.rpm'];
-const MAX_FILE_SIZE = 128 * 1024 * 1024;
+const MAX_FILE_SIZE = 3 * 1024 * 1024 * 1024;  // 3 GB
 
 const upload = multer({
   limits: {

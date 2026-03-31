@@ -126,10 +126,47 @@ export interface User {
 
 function handleError(error: unknown): Error {
   if (axios.isAxiosError(error)) {
-    const responseData = error.response?.data as { error?: { message?: string }; message?: string };
-    return new Error(responseData?.error?.message || responseData?.message || 'Error en la petición');
+    const responseData = error.response?.data as { error?: { message?: string; code?: string }; message?: string };
+    const serverMessage = responseData?.error?.message || responseData?.message || '';
+    const errorCode = responseData?.error?.code || '';
+    
+    // Mensajes más claros para errores comunes
+    if (errorCode === 'FILE_TOO_LARGE' || serverMessage.includes('Archivo demasiado grande')) {
+      return new Error('El archivo es demasiado grande. Máximo permitido: 3GB');
+    }
+    
+    if (errorCode === 'RATE_LIMIT') {
+      return new Error('Demasiados intentos. Intente de nuevo en 15 minutos.');
+    }
+    
+    if (error.response?.status === 401) {
+      return new Error('Su sesión ha expirado. Por favor, inicie sesión nuevamente.');
+    }
+    
+    if (error.response?.status === 403) {
+      return new Error('No tiene permiso para realizar esta acción.');
+    }
+    
+    if (error.response?.status === 404) {
+      return new Error('El recurso solicitado no fue encontrado.');
+    }
+    
+    if (error.response?.status === 500) {
+      return new Error('Error interno del servidor. Contacte al administrador.');
+    }
+    
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      return new Error('La conexión tardó demasiado. Verifique su conexión a internet.');
+    }
+    
+    if (!error.response) {
+      return new Error('No se puede conectar al servidor. Verifique su conexión a internet.');
+    }
+    
+    // Mensaje genérico para otros errores
+    return new Error(serverMessage || 'Ocurrió un error. Intente de nuevo.');
   }
-  return new Error('Error desconocido');
+  return new Error('Ocurrió un error inesperado.');
 }
 
 export async function getDrivers(params: { search?: string; hardwareType?: string; cursor?: string; limit?: number }) {
