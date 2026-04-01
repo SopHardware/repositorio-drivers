@@ -233,7 +233,11 @@ export async function uploadDriverFile(file: File) {
       headers: {
         'Content-Type': undefined,
       },
-    });
+      timeout: 600000, // 10 minutos para archivos grandes
+      'axios-retry': {
+        retries: 0, // No reintentar uploads (el archivo podria subirse multiples veces)
+      },
+    } as any);
     return response.data;
   } catch (error) {
     throw handleError(error);
