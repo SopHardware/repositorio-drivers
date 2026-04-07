@@ -144,6 +144,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Core-API running on port ${PORT}`);
 });
 
+server.timeout = 600000;        // 10 min para uploads grandes
+server.keepAliveTimeout = 620000;
+
 function gracefulShutdown(signal: string) {
   console.log(`\nReceived ${signal}. Starting graceful shutdown...`);
   
