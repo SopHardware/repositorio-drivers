@@ -230,15 +230,14 @@ export async function uploadDriverFile(file: File) {
 
   try {
     const response = await api.post('/drivers/upload', formData, {
-      timeout: 600000, // 10 minutos para archivos grandes
+      timeout: 600000,
       headers: {
         'Content-Type': undefined,
       },
-      timeout: 600000, // 10 minutos para archivos grandes
       'axios-retry': {
-        retries: 0, // No reintentar uploads (el archivo podria subirse multiples veces)
+        retries: 0,
       },
-    } as any);
+    });
     return response.data;
   } catch (error) {
     throw handleError(error);
