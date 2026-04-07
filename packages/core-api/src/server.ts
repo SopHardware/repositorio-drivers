@@ -54,8 +54,8 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '4gb' }));
+app.use(express.urlencoded({ limit: '4gb', extended: true }));
 
 // Cargar swagger antes de definir rutas
 const swaggerFile = readFileSync(join(process.cwd(), 'src', 'config', 'swagger.yaml'), 'utf-8');
