@@ -193,6 +193,7 @@ export async function uploadDriverFile(file: File) {
 
   try {
     const response = await api.post('/drivers/upload', formData, {
+      timeout: 600000, // 10 minutos para archivos grandes
       headers: {
         'Content-Type': undefined,
       },
@@ -204,10 +205,39 @@ export async function uploadDriverFile(file: File) {
 }
 
 export async function calculateFileHash(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest('SHA-256', buffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  const cryptoJs = await import('crypto-js');
+  
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB por chunk
+    let offset = 0;
+    const sha256 = cryptoJs.algo.SHA256.create();
+    
+    reader.onload = function(event) {
+      if (event.target?.result) {
+        const binaryString = event.target.result as string;
+        sha256.update(binaryString);
+        offset += CHUNK_SIZE;
+        
+        if (offset < file.size) {
+          readNextChunk();
+        } else {
+          resolve(sha256.finalize().toString());
+        }
+      }
+    };
+    
+    reader.onerror = function() {
+      reject(new Error('Error al leer el archivo para calcular hash'));
+    };
+    
+    function readNextChunk() {
+      const blob = file.slice(offset, offset + CHUNK_SIZE);
+      reader.readAsText(blob);
+    }
+    
+    readNextChunk();
+  });
 }
 
 export interface DuplicateCheckResult {
@@ -226,7 +256,9 @@ export interface DuplicateCheckResult {
 
 export async function checkDuplicateDriver(fileHash: string): Promise<DuplicateCheckResult> {
   try {
-    const response = await api.post('/drivers/check-duplicate', { fileHash });
+    const response = await api.post('/drivers/check-duplicate', { fileHash }, {
+      timeout: 120000, // 2 minutos para hash de archivos grandes
+    });
     return response.data.data;
   } catch (error) {
     throw handleError(error);
