@@ -1,7 +1,9 @@
-import { notFound } from 'next/navigation';
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Download, Calendar, HardDrive, Tag } from 'lucide-react';
-import { getDriver, getDriverDownloadUrl } from '@/lib/api';
+import { ArrowLeft, Download, Calendar, HardDrive, Tag, AlertCircle, Loader2 } from 'lucide-react';
+import { getDriver, getDriverDownloadUrl, HardwareDriver } from '@/lib/api';
 import { Button, Badge, Card } from '@/components/ui';
 
 interface DriverPageProps {
@@ -37,21 +39,111 @@ function getHardwareTypeLabel(type: string): string {
   return labels[type] || type;
 }
 
-export default async function DriverPage({ params }: DriverPageProps) {
+export default function DriverPage({ params }: DriverPageProps) {
   const id = parseInt(params.id, 10);
+  const [driver, setDriver] = useState<HardwareDriver | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  if (isNaN(id)) {
-    notFound();
+  useEffect(() => {
+    if (isNaN(id)) {
+      setError('ID inválido');
+      setLoading(false);
+      return;
+    }
+
+    getDriver(id)
+      .then(setDriver)
+      .catch((err) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  const downloadFile = async () => {
+    if (!driver) return;
+    
+    setIsDownloading(true);
+    setDownloadError(null);
+    abortRef.current = new AbortController();
+
+    try {
+      const downloadUrl = getDriverDownloadUrl(id);
+      
+      const response = await fetch(downloadUrl, {
+        signal: abortRef.current.signal,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Error desconocido' }));
+        throw new Error(errorData.error?.message || errorData.message || `Error ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const fileNameMatch = contentDisposition?.match(/filename="?(.+)"?/);
+      const fileName = fileNameMatch ? fileNameMatch[1] : `${driver.driverName}.${driver.fileExtension}`;
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') {
+        return;
+      }
+      setDownloadError((err as Error).message || 'Error al descargar el archivo');
+    } finally {
+      setIsDownloading(false);
+      abortRef.current = null;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-app-bg py-12 px-4">
+        <div className="max-w-3xl mx-auto">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-text-muted hover:text-brand-red transition-colors mb-8"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Volver al buscador
+          </Link>
+          <Card className="p-8 flex items-center justify-center">
+            <Loader2 className="w-8 h-8 animate-spin text-brand-red" />
+          </Card>
+        </div>
+      </div>
+    );
   }
 
-  let driver;
-  try {
-    driver = await getDriver(id);
-  } catch {
-    notFound();
+  if (error || !driver) {
+    return (
+      <div className="min-h-screen bg-app-bg py-12 px-4">
+        <div className="max-w-3xl mx-auto">
+          <Link
+            href="/"
+            className="inline-flex items-center gap-2 text-text-muted hover:text-brand-red transition-colors mb-8"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Volver al buscador
+          </Link>
+          <Card className="p-8">
+            <div className="flex items-center gap-2 text-brand-red">
+              <AlertCircle className="w-5 h-5" />
+              <span>Driver no encontrado</span>
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
   }
-
-  const downloadUrl = getDriverDownloadUrl(id);
 
   return (
     <div className="min-h-screen bg-app-bg py-12 px-4">
@@ -118,12 +210,30 @@ export default async function DriverPage({ params }: DriverPageProps) {
             </div>
           </div>
 
-          <a href={downloadUrl} download className="block">
-            <Button className="w-full text-lg py-4 flex items-center justify-center gap-3">
-              <Download className="w-6 h-6" />
-              Descargar Driver
-            </Button>
-          </a>
+          <Button 
+            onClick={downloadFile}
+            disabled={isDownloading}
+            className="w-full text-lg py-4 flex items-center justify-center gap-3"
+          >
+            {isDownloading ? (
+              <>
+                <Loader2 className="w-6 h-6 animate-spin" />
+                Descargando...
+              </>
+            ) : (
+              <>
+                <Download className="w-6 h-6" />
+                Descargar Driver
+              </>
+            )}
+          </Button>
+
+          {downloadError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span className="text-sm">{downloadError}</span>
+            </div>
+          )}
 
           <p className="text-center text-sm text-text-muted mt-4">
             Al descargar, aceptas utilizar este driver de acuerdo con las políticas de uso.
