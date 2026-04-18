@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction, Router as RouterType } from 'e
 import { driverRepository } from '../repositories/PrismaRepository.js';
 import { storage } from '../services/StorageFactory.js';
 import { NotFoundError } from '../utils/errors.js';
+import { logError } from '../utils/logger.js';
 
 interface CursorParams {
   id: number;
@@ -61,6 +62,7 @@ publicRepoRouter.get('/drivers/:id', async (req: Request, res: Response, next: N
 });
 
 publicRepoRouter.get('/drivers/:id/download', async (req: Request, res: Response, next: NextFunction) => {
+  const startTime = Date.now();
   try {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) throw new NotFoundError('Driver');
@@ -78,8 +80,19 @@ publicRepoRouter.get('/drivers/:id/download', async (req: Request, res: Response
     res.setHeader('Content-Disposition', `attachment; filename="${metadata.fileName}"`);
     res.setHeader('Content-Length', metadata.size);
 
-    return res.send(stream);
+    stream.on('error', (err) => {
+      logError(err, 'Download stream error');
+    });
+
+    stream.pipe(res);
+
+    req.on('close', () => {
+      if (!res.writableEnded) {
+        console.log(`[Download] Client aborted after ${Date.now() - startTime}ms, driver ID: ${id}`);
+      }
+    });
   } catch (error) {
+    logError(error as Error, `Download failed for driver ID: ${req.params.id}`);
     next(error);
   }
 });

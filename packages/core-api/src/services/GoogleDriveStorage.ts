@@ -3,6 +3,7 @@ import { IStorage, UploadResult, DownloadResult, FileMetadata } from '../interfa
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { PassThrough } from 'stream';
 
 const FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || '';
 
@@ -121,18 +122,16 @@ export class GoogleDriveStorage implements IStorage {
         { responseType: 'stream' }
       );
 
-      const stream = new ReadableStream<Uint8Array>({
-        async start(controller) {
-          response.data.on('data', (chunk: Buffer) => {
-            controller.enqueue(new Uint8Array(chunk));
-          });
-          response.data.on('end', () => {
-            controller.close();
-          });
-          response.data.on('error', (err: Error) => {
-            controller.error(err);
-          });
-        },
+      const stream = new PassThrough();
+
+      response.data.on('data', (chunk: Buffer) => {
+        stream.write(chunk);
+      });
+      response.data.on('end', () => {
+        stream.end();
+      });
+      response.data.on('error', (err: Error) => {
+        stream.destroy(err);
       });
 
       return {
@@ -156,15 +155,10 @@ export class GoogleDriveStorage implements IStorage {
   }
 
   private async mockDownload(fileId: string): Promise<DownloadResult> {
-    const encoder = new TextEncoder();
     const mockContent = `Mock file content for ${fileId}`;
     
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(mockContent));
-        controller.close();
-      },
-    });
+    const stream = new PassThrough();
+    stream.end(mockContent);
 
     return {
       stream,
