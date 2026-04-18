@@ -13,8 +13,10 @@ export interface UploadResult {
   size: number;
 }
 
+import { Readable } from 'stream';
+
 export interface DownloadResult {
-  stream: ReadableStream<Uint8Array>;
+  stream: Readable;
   metadata: FileMetadata;
 }
 
